@@ -1,0 +1,131 @@
+WITH tab1 AS (
+	SELECT EXTRACT
+		( YEAR FROM create_date ) AS nam,
+		EXTRACT ( MONTH FROM create_date ) AS thang,
+		to_char( create_date, 'yyyy-mm-dd' ) AS ngay,
+		CAST ( bs_transaction.store_no AS VARCHAR ) AS ma_cua_hang,
+		CAST ( bs_transaction.salesnum AS VARCHAR ) AS ma_don_hang,
+		bs_transaction.cust_sid AS ma_khach_hang_bs,
+		d_customers.customer_id AS ma_khach_hang,
+		to_char( CAST ( d_customers.dob AS DATE ), 'yyyy-mm-dd' ) AS dob,
+		date_part( 'year', CURRENT_DATE :: DATE ) - date_part( 'year', d_customers.dob :: DATE ) AS tuoi,
+		bs_transaction.item AS ma_san_pham,
+		bs_transaction.description AS description_sp,
+		bs_transaction.vendor AS brand_code,
+		bs_transaction.paymentnit_vnd AS gtdh_vnd 
+	FROM
+		analyticdata.bs_transaction
+		LEFT JOIN analyticdata.d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
+	WHERE
+		bs_transaction.create_date < '2021-01-01' 
+		AND d_customers.customer_id IS NOT NULL 
+		AND d_customers.internal_staff = 'N' 
+		AND bs_transaction.quantity >= 0
+	),
+	tab2 AS (
+	SELECT EXTRACT
+		( YEAR FROM CAST ( f_orders.date_id AS DATE ) ) AS nam,
+		EXTRACT ( MONTH FROM CAST ( f_orders.date_id AS DATE ) ) AS thang,
+		to_char( CAST ( f_orders.date_id AS DATE ), 'yyyy-mm-dd' ) AS ngay,
+		f_orders.store_id AS ma_cua_hang,
+		f_orders.document_code AS ma_don_hang,
+		d_customers.cust_sid AS ma_khach_hang_bs,
+		d_customers.customer_id AS ma_khach_hang,
+		to_char( CAST ( d_customers.dob AS DATE ), 'yyyy-mm-dd' ) AS dob,
+		date_part( 'year', CURRENT_DATE :: DATE ) - date_part( 'year', d_customers.dob :: DATE ) AS tuoi,
+		CAST ( f_order_line_items.product_id AS VARCHAR ) AS ma_san_pham,
+		f_order_line_items.product_name AS description_sp,
+		f_order_line_items.brand_code AS brand_code,
+		f_order_line_items.price_actual AS gtdh_vnd 
+	FROM
+		analyticdata.f_orders
+		LEFT JOIN analyticdata.d_customers ON d_customers."id" = f_orders.customer_id
+		LEFT JOIN analyticdata.f_order_line_items ON f_order_line_items.document_code = f_orders.document_code 
+	WHERE
+		f_orders.date_id >= '2021-01-01' 
+		AND d_customers.internal_staff = 'N' 
+		AND f_orders.document_code LIKE'%POS%' 
+	),
+	tab3 AS ( SELECT * FROM tab1 UNION SELECT * FROM tab2 ),
+	tab4 AS (
+	SELECT DISTINCT
+		brand_code,
+		ma_cua_hang,
+		d_stores.store_name AS ten_cua_hang,
+		ma_khach_hang,
+		MAX ( ngay ) AS last_order_date,
+		MIN ( ngay ),
+		to_char( CURRENT_DATE, 'yyyy-mm-dd' ) AS ngay_hien_tai,
+		(
+			( CAST ( MAX ( ngay ) AS DATE ) - CAST ( MIN ( ngay ) AS DATE ) ) / ( COUNT ( DISTINCT ma_don_hang ) ) 
+		) AS frequency,
+		TRUNC( DATE_PART( 'day', CURRENT_DATE :: TIMESTAMP - MAX ( ngay ) :: TIMESTAMP ) ) AS recency,
+		ROUND( SUM ( gtdh_vnd ) ) AS monetary 
+	FROM
+		tab3
+		LEFT JOIN analyticdata.d_stores ON d_stores.store_id = tab3.ma_cua_hang 
+	WHERE
+		d_stores.status = 'active' 
+		AND d_stores.store_id NOT IN ( '1000295', '1000294', '1000293', '1000180', '1000254' ) 
+	GROUP BY
+		1,
+		2,
+		3,
+		4 
+	),
+	tab5 AS (
+	SELECT
+		ma_cua_hang,
+		ten_cua_hang,
+		MAX ( recency ) AS max_recency,
+		MIN ( recency ) AS min_recency,
+		MAX ( monetary ) AS max_monetary,
+		MIN ( monetary ) AS min_monetary 
+	FROM
+		tab4 
+	GROUP BY
+		1,
+		2 
+	),
+	tab6 AS (
+	SELECT
+		tab4.ma_cua_hang,
+		tab4.ten_cua_hang,
+		WIDTH_BUCKET (
+			CAST ( tab4.recency AS INTEGER ),
+			CAST ( tab5.min_recency AS INTEGER ),
+			CAST ( tab5.max_recency AS INTEGER ),
+			2 
+		) AS bucket_recency,
+		WIDTH_BUCKET (
+			CAST ( tab4.monetary AS NUMERIC ),
+			CAST ( tab5.min_monetary AS NUMERIC ),
+			CAST ( tab5.max_monetary AS NUMERIC ),
+			2 
+		) AS bucket_monetary,
+		COUNT ( DISTINCT ma_khach_hang ) AS slkh 
+	FROM
+		tab4
+		LEFT JOIN tab5 ON tab4.ma_cua_hang = tab5.ma_cua_hang 
+	WHERE
+		tab5.max_recency > tab5.min_recency 
+	GROUP BY
+		1,
+		2,
+		3,
+		4 
+	) SELECT
+	tab6.ma_cua_hang,
+	tab6.ten_cua_hang,
+	tab6.bucket_recency,
+	tab5.min_recency + ROUND(( ( bucket_recency - 1 ) * ( tab5.max_recency - tab5.min_recency ) / 3 )) || '-' || ROUND(( tab5.min_recency + ( bucket_recency ) * ( tab5.max_recency - tab5.min_recency ) / 3 )) AS phan_khuc_recency,
+	tab6.bucket_monetary,
+	tab5.min_monetary + ROUND(( ( bucket_monetary - 1 ) * ( tab5.max_monetary - tab5.min_monetary ) / 3 )) || '-' || ROUND(( tab5.min_monetary + ( bucket_monetary ) * ( tab5.max_monetary - tab5.min_monetary ) / 3 )) AS phan_khuc_monetary,
+	slkh 
+FROM
+	tab6
+	LEFT JOIN tab5 ON tab6.ma_cua_hang = tab5.ma_cua_hang 
+ORDER BY
+	2,
+	3 ASC,
+	5 DESC
