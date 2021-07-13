@@ -1,26 +1,27 @@
 WITH tab1 AS (
 	SELECT EXTRACT
-		( YEAR FROM create_date ) AS nam,
-		EXTRACT ( MONTH FROM create_date ) AS thang,
-		to_char( create_date, 'yyyy-mm-dd' ) AS ngay,
+		( YEAR FROM bs_transaction.create_date ) AS nam,
+		EXTRACT ( MONTH FROM bs_transaction.create_date ) AS thang,
+		to_char( bs_transaction.create_date, 'yyyy-mm-dd' ) AS ngay,
 		CAST ( bs_transaction.store_no AS VARCHAR ) AS ma_cua_hang,
 		CAST ( bs_transaction.salesnum AS VARCHAR ) AS ma_don_hang,
 		bs_transaction.cust_sid AS ma_khach_hang_bs,
-		d_customers.customer_id AS ma_khach_hang,
-		to_char( CAST ( d_customers.dob AS DATE ), 'yyyy-mm-dd' ) AS dob,
-		date_part( 'year', CURRENT_DATE :: DATE ) - date_part( 'year', d_customers.dob :: DATE ) AS tuoi,
-		bs_transaction.item AS ma_san_pham,
-		bs_transaction.description AS description_sp,
-		bs_transaction.vendor AS brand_code,
+		d_customers."id" AS ma_khach_hang,
 		bs_transaction.paymentnit_vnd AS gtdh_vnd 
 	FROM
-		analyticdata.bs_transaction
-		LEFT JOIN analyticdata.d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
+		bs_transaction
+		LEFT JOIN d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
 	WHERE
-		bs_transaction.create_date < '2021-01-01' 
-		AND d_customers.customer_id IS NOT NULL 
+		d_customers.internal_staff = 'N' 
+		AND bs_transaction.quantity >= 0 
 		AND d_customers.internal_staff = 'N' 
-		AND bs_transaction.quantity >= 0
+		AND d_customers.group_name = 'Khách hàng' 
+		AND d_customers.phone IS NOT NULL 
+		OR d_customers.phone2 IS NOT NULL 
+	ORDER BY
+		1,
+		2,
+		3 DESC 
 	),
 	tab2 AS (
 	SELECT EXTRACT
@@ -30,48 +31,49 @@ WITH tab1 AS (
 		f_orders.store_id AS ma_cua_hang,
 		f_orders.document_code AS ma_don_hang,
 		d_customers.cust_sid AS ma_khach_hang_bs,
-		d_customers.customer_id AS ma_khach_hang,
-		to_char( CAST ( d_customers.dob AS DATE ), 'yyyy-mm-dd' ) AS dob,
-		date_part( 'year', CURRENT_DATE :: DATE ) - date_part( 'year', d_customers.dob :: DATE ) AS tuoi,
-		CAST ( f_order_line_items.product_id AS VARCHAR ) AS ma_san_pham,
-		f_order_line_items.product_name AS description_sp,
-		f_order_line_items.brand_code AS brand_code,
-		f_order_line_items.price_actual AS gtdh_vnd 
+		d_customers."id" AS ma_khach_hang,
+		f_orders.total_amount AS gtdh_vnd -- total amount include discounts
+		
 	FROM
-		analyticdata.f_orders
-		LEFT JOIN analyticdata.d_customers ON d_customers."id" = f_orders.customer_id
-		LEFT JOIN analyticdata.f_order_line_items ON f_order_line_items.document_code = f_orders.document_code 
+		f_orders
+		LEFT JOIN d_customers ON f_orders.customer_id = d_customers."id"
+		LEFT JOIN f_order_line_items ON f_orders.document_code = f_order_line_items.document_code 
 	WHERE
-		f_orders.date_id >= '2021-01-01' 
-		AND d_customers.internal_staff = 'N' 
+		d_customers.internal_staff = 'N' 
 		AND f_orders.document_code LIKE'%POS%' 
+		AND d_customers.group_name = 'Khách hàng' 
+		AND d_customers.phone IS NOT NULL 
+		OR d_customers.phone2 IS NOT NULL 
+	ORDER BY
+		1,
+		2,
+		3 ASC 
 	),
 	tab3 AS ( SELECT * FROM tab1 UNION SELECT * FROM tab2 ),
 	tab4 AS (
-	SELECT DISTINCT
-		brand_code,
+	SELECT
 		ma_cua_hang,
 		d_stores.store_name AS ten_cua_hang,
 		ma_khach_hang,
 		MAX ( ngay ) AS last_order_date,
-		MIN ( ngay ),
 		to_char( CURRENT_DATE, 'yyyy-mm-dd' ) AS ngay_hien_tai,
-		(
-			( CAST ( MAX ( ngay ) AS DATE ) - CAST ( MIN ( ngay ) AS DATE ) ) / ( COUNT ( DISTINCT ma_don_hang ) ) 
-		) AS frequency,
 		TRUNC( DATE_PART( 'day', CURRENT_DATE :: TIMESTAMP - MAX ( ngay ) :: TIMESTAMP ) ) AS recency,
 		ROUND( SUM ( gtdh_vnd ) ) AS monetary 
 	FROM
 		tab3
-		LEFT JOIN analyticdata.d_stores ON d_stores.store_id = tab3.ma_cua_hang 
+		LEFT JOIN d_stores ON d_stores.store_id = tab3.ma_cua_hang 
 	WHERE
 		d_stores.status = 'active' 
-		AND d_stores.store_id NOT IN ( '1000295', '1000294', '1000293', '1000180', '1000254' ) 
+		AND d_stores.store_id NOT IN ( '1000295', '1000294', '1000293', '1000180', '1000254' ) /*1000180	HNHO	HO - Hà Nội
+			1000254	HCMHO	HO - Hồ Chí Minh
+			1000295	HAN.WAM.01	Wholesale Amenites
+			1000293	HAN.BNO.04	Bang Olufsen Wholesales
+			1000294	HAN.WYT.01	Wholesale Ytsara */
+		
 	GROUP BY
 		1,
 		2,
-		3,
-		4 
+		3 
 	),
 	tab5 AS (
 	SELECT
@@ -118,9 +120,9 @@ WITH tab1 AS (
 	tab6.ma_cua_hang,
 	tab6.ten_cua_hang,
 	tab6.bucket_recency,
-	tab5.min_recency + ROUND(( ( bucket_recency - 1 ) * ( tab5.max_recency - tab5.min_recency ) / 3 )) || '-' || ROUND(( tab5.min_recency + ( bucket_recency ) * ( tab5.max_recency - tab5.min_recency ) / 3 )) AS phan_khuc_recency,
+	tab5.min_recency + ROUND( ( ( bucket_recency - 1 ) * ( tab5.max_recency - tab5.min_recency ) / 3 ) ) || '-' || ROUND( ( tab5.min_recency + ( bucket_recency ) * ( tab5.max_recency - tab5.min_recency ) / 3 ) ) AS phan_khuc_recency,
 	tab6.bucket_monetary,
-	tab5.min_monetary + ROUND(( ( bucket_monetary - 1 ) * ( tab5.max_monetary - tab5.min_monetary ) / 3 )) || '-' || ROUND(( tab5.min_monetary + ( bucket_monetary ) * ( tab5.max_monetary - tab5.min_monetary ) / 3 )) AS phan_khuc_monetary,
+	tab5.min_monetary + ROUND( ( ( bucket_monetary - 1 ) * ( tab5.max_monetary - tab5.min_monetary ) / 3 ) ) || '-' || ROUND( ( tab5.min_monetary + ( bucket_monetary ) * ( tab5.max_monetary - tab5.min_monetary ) / 3 ) ) AS phan_khuc_monetary,
 	slkh 
 FROM
 	tab6
@@ -128,4 +130,8 @@ FROM
 ORDER BY
 	2,
 	3 ASC,
-	5 DESC
+	5 DESC ------
+-- test dữ liệu stores: 1 số stores mới được tạo từ 2020-2021 dù đã có trước đó, 1 số store ko có store_no trong bstone
+/*SELECT DISTINCT store_id, store_name, to_char(CAST(d_stores.created_date AS date), 'yyyy-mm-dd') AS created_date
+FROM d_stores
+WHERE store_id NOT IN (SELECT CAST(store_no AS VARCHAR) AS store_no FROM bs_transaction) */
