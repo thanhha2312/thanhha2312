@@ -1,0 +1,199 @@
+WITH tab1 AS (
+	SELECT EXTRACT
+		( YEAR FROM bs_transaction.create_date ) AS nam,
+		EXTRACT ( MONTH FROM bs_transaction.create_date ) AS thang,
+		to_char( bs_transaction.create_date, 'yyyy-mm-dd' ) AS ngay,
+		CAST ( bs_transaction.store_no AS VARCHAR ) AS ma_cua_hang,
+		CAST ( bs_transaction.salesnum AS VARCHAR ) AS ma_don_hang,
+		bs_transaction.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		bs_transaction.paymentnit_vnd AS gtdh_vnd 
+	FROM
+		bs_transaction
+		LEFT JOIN d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
+	WHERE
+		(
+			d_customers.internal_staff = 'N' 
+			AND bs_transaction.quantity >= 0 
+			AND d_customers.internal_staff = 'N' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND bs_transaction.store_no = '1000240' 
+			AND d_customers.phone IS NOT NULL 
+		) 
+		OR (
+			d_customers.internal_staff = 'N' 
+			AND bs_transaction.quantity >= 0 
+			AND d_customers.internal_staff = 'N' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND bs_transaction.store_no = '1000240' 
+			AND d_customers.phone2 IS NOT NULL 
+		) 
+		OR (
+			d_customers.internal_staff = 'N' 
+			AND bs_transaction.quantity >= 0 
+			AND d_customers.internal_staff = 'N' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND bs_transaction.store_no = '1000252' 
+			AND d_customers.phone IS NOT NULL 
+		) 
+		OR (
+			d_customers.internal_staff = 'N' 
+			AND bs_transaction.quantity >= 0 
+			AND d_customers.internal_staff = 'N' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND bs_transaction.store_no = '1000252' 
+			AND d_customers.phone2 IS NOT NULL 
+		) 
+	ORDER BY
+		1,
+		2,
+		3 DESC 
+	),
+	tab2 AS (
+	SELECT EXTRACT
+		( YEAR FROM CAST ( f_orders.date_id AS DATE ) ) AS nam,
+		EXTRACT ( MONTH FROM CAST ( f_orders.date_id AS DATE ) ) AS thang,
+		to_char( CAST ( f_orders.date_id AS DATE ), 'yyyy-mm-dd' ) AS ngay,
+		f_orders.store_id AS ma_cua_hang,
+		f_orders.document_code AS ma_don_hang,
+		d_customers.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		f_orders.total_amount AS gtdh_vnd -- total amount include discounts
+		
+	FROM
+		f_orders
+		LEFT JOIN d_customers ON f_orders.customer_id = d_customers."id"
+		LEFT JOIN f_order_line_items ON f_orders.document_code = f_order_line_items.document_code 
+	WHERE
+		(
+			d_customers.internal_staff = 'N' 
+			AND f_orders.document_code LIKE'%POS%' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND f_orders.store_id = '1000240' 
+			AND d_customers.phone IS NOT NULL 
+		) 
+		OR (
+			d_customers.internal_staff = 'N' 
+			AND f_orders.document_code LIKE'%POS%' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND f_orders.store_id = '1000240' 
+			AND d_customers.phone2 IS NOT NULL 
+		) 
+		OR (
+			d_customers.internal_staff = 'N' 
+			AND f_orders.document_code LIKE'%POS%' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND f_orders.store_id = '1000252' 
+			AND d_customers.phone IS NOT NULL 
+		) 
+		OR (
+			d_customers.internal_staff = 'N' 
+			AND f_orders.document_code LIKE'%POS%' 
+			AND d_customers.group_name = 'Khách hàng' 
+			AND f_orders.store_id = '1000252' 
+			AND d_customers.phone2 IS NOT NULL 
+		) 
+	ORDER BY
+		1,
+		2,
+		3 ASC 
+	),
+	tab3 AS ( SELECT * FROM tab1 UNION SELECT * FROM tab2 ),
+	tab4 AS (
+	SELECT
+		ma_cua_hang,
+		d_stores.store_name AS ten_cua_hang,
+		ma_khach_hang,
+		MAX ( ngay ) AS last_order_date,
+		MIN ( ngay ),
+		to_char( CURRENT_DATE, 'yyyy-mm-dd' ) AS ngay_hien_tai,
+		( CAST ( MAX ( ngay ) AS DATE ) - CAST ( MIN ( ngay ) AS DATE ) ) AS lifetime,
+		TRUNC( DATE_PART( 'day', CURRENT_DATE :: TIMESTAMP - MAX ( ngay ) :: TIMESTAMP ) ) AS recency,
+		COUNT ( DISTINCT ma_don_hang ) AS sldh,
+		ROUND( SUM ( gtdh_vnd ) ) AS monetary 
+	FROM
+		tab3
+		LEFT JOIN d_stores ON d_stores.store_id = tab3.ma_cua_hang 
+	GROUP BY
+		1,
+		2,
+		3 
+	),
+	tab5 AS ( SELECT ma_cua_hang, ten_cua_hang, ma_khach_hang, lifetime, -- recency,
+	sldh, monetary FROM tab4 ORDER BY 4 DESC, 5 DESC, 6 DESC ),
+	tab6 AS (
+	SELECT
+		ma_cua_hang,
+		ten_cua_hang,
+		ma_khach_hang,
+		monetary,
+		lifetime,
+-- recency,
+		sldh 
+	FROM
+		tab5 
+	WHERE
+		ma_cua_hang = '1000252' 
+	ORDER BY
+		4 DESC,
+		5 DESC,
+		6 DESC 
+		LIMIT 10 
+	),
+	tab7 AS (
+	SELECT
+		ma_cua_hang,
+		ten_cua_hang,
+		ma_khach_hang,
+		monetary,
+		lifetime,
+-- recency,
+		sldh 
+	FROM
+		tab5 
+	WHERE
+		ma_cua_hang = '1000240' 
+	ORDER BY
+		4 DESC,
+		5 DESC,
+		6 DESC 
+		LIMIT 10 
+	),
+	tab8 AS ( SELECT * FROM tab6 UNION SELECT * FROM tab7 ) SELECT DISTINCT
+	tab8.ma_cua_hang,
+	tab8.ten_cua_hang,
+	tab8.ma_khach_hang,
+	d_customers.group_name,
+	d_customers.full_name,
+	d_customers.gender,
+	d_customers.phone,
+	d_customers.email,
+	d_customers.membership,
+	d_customers.address,
+	tab8.monetary,
+	tab8.lifetime,
+-- tab8.recency,
+	tab8.sldh,
+	COUNT ( DISTINCT f_order_line_items.product_group_name ) AS sl_NGH 
+FROM
+	tab8
+	LEFT JOIN d_customers ON d_customers."id" = tab8.ma_khach_hang
+	LEFT JOIN f_order_line_items ON f_order_line_items.customer_id = tab8.ma_khach_hang 
+GROUP BY
+	1,
+	2,
+	3,
+	4,
+	5,
+	6,
+	7,
+	8,
+	9,
+	10,
+	11,
+	12,
+	13 
+ORDER BY
+	1,
+	2,
+	10 DESC 
