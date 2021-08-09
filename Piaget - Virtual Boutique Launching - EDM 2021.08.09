@@ -1,0 +1,32 @@
+-- KH Piaget, VC, Chopard, Patek
+with tab1 as
+(select distinct
+d_customers.id,d_customers.cust_sid, d_customers.full_name,d_customers.phone, d_customers.email
+from analyticdata.d_customers
+where d_customers.id in (select customer_id from analyticdata.f_orders where store_id in ('1000250','1000271','1000259','1000258','1000257'))
+or d_customers.cust_sid in (select cust_sid from analyticdata.bs_transaction where store_no in ('1000258','1000271','1000259') ))
+
+-- KH Hugo, Boss, BNO
+,tab2 as
+(select distinct
+d_customers.id,d_customers.cust_sid, d_customers.full_name,d_customers.phone, d_customers.email
+from analyticdata.d_customers
+where d_customers.id in (select distinct customer_id from analyticdata.f_orders where store_id in ('1000277','1000262','1000251','1000275','1000272','1000248','1000285','1000260','1000279'))
+or d_customers.cust_sid in (select distinct cust_sid from analyticdata.bs_transaction where vendor in ('HUG','BNO') and store_no in ('1000180','27','1000254','1000256','1000279','1000260','1000248','1000276','1000180',
+'1000254','1000275','1000262')))
+
+-- KH Watches & Jewel của Hermes
+,tab3 as
+(select distinct
+d_customers.id,d_customers.cust_sid, d_customers.full_name,d_customers.phone, d_customers.email
+from analyticdata.d_customers
+where d_customers.id in (select distinct f_orders.customer_id from analyticdata.f_orders left join analyticdata.f_order_line_items on f_orders.document_code = f_order_line_items.document_code where f_orders.store_id in('1000286',
+'1000265','1000278','1000240','1000252') and f_order_line_items.product_group_name in ('Watch','Jewellery'))
+or d_customers.cust_sid in (select distinct cust_sid from analyticdata.bs_transaction where vendor = 'HER' and family like '%watch%' or vendor = 'HER' and family like '%jewel%' ))
+
+,tab4 as
+(select * from tab1 union select * from tab2 union select * from tab3)
+
+select distinct id, full_name, phone, email from tab4 where phone is not null
+
+
