@@ -1,0 +1,46 @@
+/*select distinct store_id, store_code, store_name from analyticdata.d_stores where store_code like '%PAT%'
+
+select distinct vendor, store_no from analyticdata.bs_transaction where vendor = 'PAT' */
+
+-- patek phillipe: store_no = store_id = 1000259
+-- báo cáo hãng tổng quan 01/2021 - 07/2021
+with tab1 as
+(select
+f_orders.date_id,f_orders.customer_id as id, d_customers.customer_id, d_customers.full_name, f_order_line_items.document_code, f_order_line_items.product_name, f_order_line_items.item_qty, 
+f_order_line_items.line_amount, f_order_line_items.discount_amount
+from analyticdata.f_orders 
+left join analyticdata.d_customers on f_orders.customer_id = d_customers.id
+left join analyticdata.f_order_line_items on f_orders.document_code = f_order_line_items.document_code
+where f_orders.store_id = '1000259' and f_orders.date_id > '20210131' and f_orders.date_id < '20210801' order by date_id asc)
+
+,tab2 as
+(select distinct
+customer_id, full_name, count(distinct document_code) as sldh, sum(item_qty) as slsp, sum(line_amount)-sum(discount_amount) as dt
+from tab1 group by 1, 2)
+
+select
+case 
+    when sldh = 1 then 'new customers' 
+    when sldh > 1 then 'regular customers'
+    else null
+end as group,
+count(distinct customer_id) as slkh,
+sum(sldh) as sldh,
+sum(slsp) as slsp,
+round(sum(dt)/23000,0) as dt_usd
+from tab2 
+group by 1
+------------------------ lấy dữ liệu cùng kì 2020
+
+with tab1 as
+(select
+to_char(bs_transaction.create_date,'yyyy-mm-dd') as create_date, bs_transaction.cust_sid, d_customers.customer_id, d_customers.full_name, bs_transaction.invc_sid as ma_don_hang, 
+bs_transaction.family as product_name, bs_transaction.quantity, bs_transaction.paymentnit_vnd, bs_transaction.paymentnit
+from analyticdata.bs_transaction
+full join analyticdata.d_customers on bs_transaction.cust_sid = d_customers.cust_sid
+where bs_transaction.store_no = '1000259' and bs_transaction.create_date > '20200131' and bs_transaction.create_date < '20200801' and bs_transaction.cust_sid is not null order by 1)
+
+select distinct
+cust_sid, customer_id, full_name, count(distinct ma_don_hang) as sldh, sum(quantity) as slsp, sum(paymentnit_vnd) as dt_vnd, sum(paymentnit) as dt_usd
+from tab1 group by 1, 2, 3
+
