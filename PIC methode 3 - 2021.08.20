@@ -1,0 +1,283 @@
+WITH tab1 AS (
+	SELECT EXTRACT
+		( YEAR FROM bs_transaction.create_date ) AS nam,
+		EXTRACT ( MONTH FROM bs_transaction.create_date ) AS thang,
+		to_char( bs_transaction.create_date, 'yyyy-mm-dd' ) AS ngay,
+		CAST ( bs_transaction.store_no AS VARCHAR ) AS ma_cua_hang,
+		CAST ( bs_transaction.salesnum AS VARCHAR ) AS ma_don_hang,
+		bs_transaction.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		bs_transaction.paymentnit_vnd AS gtdh_vnd 
+	FROM
+		analyticdata.bs_transaction
+		LEFT JOIN analyticdata.d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
+	WHERE
+		(d_customers.internal_staff = 'N' AND bs_transaction.quantity >= 0 AND d_customers.internal_staff = 'N' AND d_customers.phone IS NOT NULL)
+	OR 
+	    (d_customers.internal_staff = 'N' AND bs_transaction.quantity >= 0 AND d_customers.internal_staff = 'N' AND d_customers.phone2 IS NOT NULL)
+	ORDER BY
+		1,
+		2,
+		3 DESC 
+	),
+	tab2 AS (
+	SELECT EXTRACT
+		( YEAR FROM CAST ( f_orders.date_id AS DATE ) ) AS nam,
+		EXTRACT ( MONTH FROM CAST ( f_orders.date_id AS DATE ) ) AS thang,
+		to_char( CAST ( f_orders.date_id AS DATE ), 'yyyy-mm-dd' ) AS ngay,
+		f_orders.store_id AS ma_cua_hang,
+		f_orders.document_code AS ma_don_hang,
+		d_customers.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		f_orders.total_amount AS gtdh_vnd -- total amount include discounts
+		
+	FROM
+		analyticdata.f_orders
+		LEFT JOIN analyticdata.d_customers ON f_orders.customer_id = d_customers."id"
+		LEFT JOIN analyticdata.f_order_line_items ON f_orders.document_code = f_order_line_items.document_code 
+	WHERE
+		(d_customers.internal_staff = 'N' AND f_orders.document_code LIKE'%POS%' AND d_customers.phone IS NOT NULL AND f_orders.store_id not in (SELECT cast(order_return_id as VARCHAR) AS order_return_id FROM analyticdata.f_returns))
+	OR 
+	    (d_customers.internal_staff = 'N' AND f_orders.document_code LIKE'%POS%' AND d_customers.phone2 IS NOT NULL AND f_orders.store_id not in (SELECT cast(order_return_id as VARCHAR) AS order_return_id FROM analyticdata.f_returns))
+	ORDER BY
+		1,
+		2,
+		3 ASC 
+	),
+	tab3 AS ( SELECT * FROM tab1 UNION SELECT * FROM tab2 ),
+    tab4 AS
+	(SELECT
+		ma_cua_hang,
+		d_stores.store_name AS ten_cua_hang,
+		ma_khach_hang,
+		MAX ( ngay ) AS last_order_date,
+		to_char( CURRENT_DATE, 'yyyy-mm-dd' ) AS ngay_hien_tai,
+		TRUNC( DATE_PART( 'day', CURRENT_DATE :: TIMESTAMP - MAX ( ngay ) :: TIMESTAMP ) ) AS recency,
+		ROUND( SUM ( gtdh_vnd ) ) AS monetary 
+	FROM
+		tab3
+		LEFT JOIN analyticdata.d_stores ON d_stores.store_id = tab3.ma_cua_hang 
+	WHERE
+		d_stores.status = 'active' 
+		AND d_stores.store_id NOT IN ( '1000295', '1000294', '1000293', '1000180', '1000254' ) 
+		-- AND tab3.ma_khach_hang NOT IN (SELECT id FROM analyticdata.d_customers WHERE membership NOT IN('Elite', 'Diamond', 'Gold', 'Silver', 'Bronze'))
+		    /*1000180	HNHO	HO - Hà Nội
+			1000254	HCMHO	HO - Hồ Chí Minh
+			1000295	HAN.WAM.01	Wholesale Amenites
+			1000293	HAN.BNO.04	Bang Olufsen Wholesales
+			1000294	HAN.WYT.01	Wholesale Ytsara */
+		
+	GROUP BY
+		1,
+		2,
+		3 ),
+		
+	tab5 AS	
+    (SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	   monetary,
+	   RANK() OVER (PARTITION BY ma_cua_hang ORDER BY monetary DESC) AS rank
+	FROM tab4
+	WHERE recency <= 365
+	ORDER BY 1, 5 ASC),
+	
+  tab6 AS  
+   (SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	    monetary,
+	    rank,
+	    row_number() OVER (PARTITION BY ten_cua_hang ORDER BY rank) AS slkh_rank,
+	    count(*) OVER (PARTITION BY ten_cua_hang) AS total_kh_stores
+	FROM tab5),
+	
+	tab7 AS
+	(SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	    monetary,
+	    rank,
+	    slkh_rank,
+	    total_kh_stores,
+	    (sum(slkh_rank)/sum(total_kh_stores))*100 AS percentage
+	FROM tab6
+	GROUP BY 1, 2, 3, 4, 5, 6, 7
+	ORDER BY 2, 5 ASC),
+	
+	tab8 AS
+	(SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	    monetary,
+	    rank,
+	    slkh_rank, 
+	    total_kh_stores,
+	    percentage,
+	    case 
+	        when percentage <= 10.00 then 'bucket 0-10%'
+	        when percentage > 10.00 AND percentage <= 40.00 then 'bucket 11%-40%'
+	        when percentage > 40.00 AND percentage <= 100.00 then 'bucket 41%-100%'
+	   else null end AS bucket
+	FROM tab7)
+	
+	SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    bucket,
+	    count(distinct ma_khach_hang) AS slkh,
+	    min(monetary) AS min,
+	    max(monetary) AS max
+	FROM tab8
+	GROUP BY 1, 2, 3
+	ORDER BY 2
+	-----------------------------------
+    -- BNO
+WITH tab1 AS (
+	SELECT EXTRACT
+		( YEAR FROM bs_transaction.create_date ) AS nam,
+		EXTRACT ( MONTH FROM bs_transaction.create_date ) AS thang,
+		to_char( bs_transaction.create_date, 'yyyy-mm-dd' ) AS ngay,
+		case
+		when CAST ( bs_transaction.store_no AS VARCHAR ) = '1000254' then '1000272'
+		when CAST ( bs_transaction.store_no AS VARCHAR ) = '1000180' then '1000251'
+		else null end AS ma_cua_hang,
+		CAST ( bs_transaction.salesnum AS VARCHAR ) AS ma_don_hang,
+		bs_transaction.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		bs_transaction.paymentnit_vnd AS gtdh_vnd 
+	FROM
+		analyticdata.bs_transaction
+		LEFT JOIN analyticdata.d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
+	WHERE
+		(d_customers.internal_staff = 'N' AND bs_transaction.quantity >= 0 AND d_customers.internal_staff = 'N' AND d_customers.phone IS NOT NULL AND bs_transaction.vendor = 'BNO' AND bs_transaction.store_no IN('1000254','1000180'))
+	OR 
+	    (d_customers.internal_staff = 'N' AND bs_transaction.quantity >= 0 AND d_customers.internal_staff = 'N' AND d_customers.phone2 IS NOT NULL AND bs_transaction.vendor = 'BNO' AND bs_transaction.store_no IN('1000254','1000180'))
+	ORDER BY -- 1000180 HO-HN; 1000254 HO-HCM
+		1,
+		2,
+		3 DESC 
+	),
+	tab2 AS (
+	SELECT EXTRACT
+		( YEAR FROM CAST ( f_orders.date_id AS DATE ) ) AS nam,
+		EXTRACT ( MONTH FROM CAST ( f_orders.date_id AS DATE ) ) AS thang,
+		to_char( CAST ( f_orders.date_id AS DATE ), 'yyyy-mm-dd' ) AS ngay,
+		f_orders.store_id AS ma_cua_hang,
+		f_orders.document_code AS ma_don_hang,
+		d_customers.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		f_orders.total_amount AS gtdh_vnd -- total amount include discounts
+		
+	FROM
+		analyticdata.f_orders
+		LEFT JOIN analyticdata.d_customers ON f_orders.customer_id = d_customers."id"
+		LEFT JOIN analyticdata.f_order_line_items ON f_orders.document_code = f_order_line_items.document_code 
+	WHERE
+		(d_customers.internal_staff = 'N' AND f_orders.document_code LIKE'%POS%' AND d_customers.phone IS NOT NULL AND f_orders.store_id IN('1000251','1000272') 
+		AND f_orders.store_id not in (SELECT cast(order_return_id as VARCHAR) AS order_return_id FROM analyticdata.f_returns))
+	OR 
+	    (d_customers.internal_staff = 'N' AND f_orders.document_code LIKE'%POS%' AND d_customers.phone2 IS NOT NULL AND f_orders.store_id IN('1000251','1000272')
+	    AND f_orders.store_id not in (SELECT cast(order_return_id as VARCHAR) AS order_return_id FROM analyticdata.f_returns))
+	ORDER BY
+		1,
+		2,
+		3 ASC 
+	),
+	tab3 AS ( SELECT * FROM tab1 UNION SELECT * FROM tab2 ),
+	tab4 AS (
+	SELECT
+		ma_cua_hang,
+		d_stores.store_name AS ten_cua_hang,
+		ma_khach_hang,
+		MAX ( ngay ) AS last_order_date,
+		to_char( CURRENT_DATE, 'yyyy-mm-dd' ) AS ngay_hien_tai,
+		TRUNC( DATE_PART( 'day', CURRENT_DATE :: TIMESTAMP - MAX ( ngay ) :: TIMESTAMP ) ) AS recency,
+		ROUND( SUM ( gtdh_vnd ) ) AS monetary 
+	FROM
+		tab3
+		LEFT JOIN analyticdata.d_stores ON d_stores.store_id = tab3.ma_cua_hang 
+	WHERE
+		d_stores.status = 'active' 
+		AND d_stores.store_id NOT IN ( '1000295', '1000294', '1000293', '1000180', '1000254' ) 
+		-- AND tab3.ma_khach_hang NOT IN (SELECT id FROM analyticdata.d_customers WHERE membership NOT IN('Elite', 'Diamond', 'Gold', 'Silver', 'Bronze'))
+		    /*1000180	HNHO	HO - Hà Nội
+			1000254	HCMHO	HO - Hồ Chí Minh
+			1000295	HAN.WAM.01	Wholesale Amenites
+			1000293	HAN.BNO.04	Bang Olufsen Wholesales
+			1000294	HAN.WYT.01	Wholesale Ytsara */
+		
+	GROUP BY
+		1,
+		2,
+		3 
+	),
+	tab5 AS	
+    (SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	   monetary,
+	   RANK() OVER (PARTITION BY ma_cua_hang ORDER BY monetary DESC) AS rank
+	FROM tab4
+	WHERE recency <= 365
+	ORDER BY 1, 5 ASC),
+	
+  tab6 AS  
+   (SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	    monetary,
+	    rank,
+	    row_number() OVER (PARTITION BY ten_cua_hang ORDER BY rank) AS slkh_rank,
+	    count(*) OVER (PARTITION BY ten_cua_hang) AS total_kh_stores
+	FROM tab5),
+	
+	tab7 AS
+	(SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	    monetary,
+	    rank,
+	    slkh_rank,
+	    total_kh_stores,
+	    (sum(slkh_rank)/sum(total_kh_stores))*100 AS percentage
+	FROM tab6
+	GROUP BY 1, 2, 3, 4, 5, 6, 7
+	ORDER BY 2, 5 ASC),
+	
+	tab8 AS
+	(SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    ma_khach_hang,
+	    monetary,
+	    rank,
+	    slkh_rank, 
+	    total_kh_stores,
+	    percentage,
+	    case 
+	        when percentage <= 10.00 then 'bucket 0-10%'
+	        when percentage > 10.00 AND percentage <= 40.00 then 'bucket 11%-40%'
+	        when percentage > 40.00 AND percentage <= 100.00 then 'bucket 41%-100%'
+	   else null end AS bucket
+	FROM tab7)
+	
+	SELECT
+	    ma_cua_hang,
+	    ten_cua_hang,
+	    bucket,
+	    count(distinct ma_khach_hang) AS slkh,
+	    min(monetary) AS min,
+	    max(monetary) AS max
+	FROM tab8
+	GROUP BY 1, 2, 3
+	ORDER BY 2
+  ---------------------------------------------
+  
