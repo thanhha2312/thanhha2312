@@ -1,0 +1,23 @@
+-- comparing the values of the current and the previous row
+with tab1 as
+(select
+to_char(cast(f_orders.date_id as date),'yyyy-mm-dd') as date,
+sum(f_orders.total_amount) as revenue
+from analyticdata.f_orders
+group by 1
+order by 1 asc),
+
+tab2 as
+(select
+date, 
+revenue,
+LAG(revenue,1) OVER (ORDER BY date) previous_date_revenue -- comparing the values of the current and the previous row
+from tab1
+order by 1 asc)
+
+select
+EXTRACT ( YEAR FROM CAST ( date AS DATE ) ) AS nam,
+EXTRACT ( MONTH FROM CAST ( date AS DATE ) ) AS thang,
+(sum(revenue)- sum(previous_date_revenue))/sum(previous_date_revenue) as growth_rate
+from tab2
+group by 1,2
