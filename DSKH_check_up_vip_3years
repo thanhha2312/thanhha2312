@@ -1,0 +1,106 @@
+-- revenue 2018/09/01 - 2019/08/31
+-- revenue 2019/09/01 - 2020/08/31
+/* WITH tab1 AS
+(SELECT EXTRACT
+		( YEAR FROM bs_transaction.create_date ) AS nam,
+		EXTRACT ( MONTH FROM bs_transaction.create_date ) AS thang,
+		to_char( bs_transaction.create_date, 'yyyy-mm-dd' ) AS ngay,
+		CAST ( bs_transaction.store_no AS VARCHAR ) AS ma_cua_hang,
+		CAST ( bs_transaction.salesnum AS VARCHAR ) AS ma_don_hang,
+		bs_transaction.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		d_customers.customer_id AS customer_id,
+		d_customers.phone AS phone,
+		d_customers.full_name AS name,
+		bs_transaction.paymentnit_vnd AS gtdh_vnd
+	FROM
+		analyticdata.bs_transaction
+		LEFT JOIN analyticdata.d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
+	WHERE
+	    bs_transaction.create_date >= '20190901' AND bs_transaction.create_date < '20200901'
+		AND d_customers.internal_staff = 'N' 
+		AND bs_transaction.quantity >= 0 
+		AND d_customers.internal_staff = 'N' 
+		AND d_customers.group_name = 'Khách hàng' 
+		AND d_customers.phone IS NOT NULL
+	ORDER BY 3 desc)
+	
+SELECT
+    ma_khach_hang_bs,
+    ma_khach_hang,
+    customer_id,
+    phone,
+    name,
+    sum(gtdh_vnd) as revenue_2019
+FROM tab1
+GROUP BY 1, 2, 3, 4, 5 */
+
+-- revenue 
+  
+WITH tab1 AS (
+	SELECT EXTRACT
+		( YEAR FROM bs_transaction.create_date ) AS nam,
+		EXTRACT ( MONTH FROM bs_transaction.create_date ) AS thang,
+		to_char( bs_transaction.create_date, 'yyyy-mm-dd' ) AS ngay,
+		CAST ( bs_transaction.store_no AS VARCHAR ) AS ma_cua_hang,
+		CAST ( bs_transaction.salesnum AS VARCHAR ) AS ma_don_hang,
+		bs_transaction.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		d_customers.customer_id AS customer_id,
+		d_customers.phone AS phone,
+		d_customers.full_name AS name,
+		bs_transaction.paymentnit_vnd AS gtdh_vnd
+	FROM
+		analyticdata.bs_transaction
+		LEFT JOIN analyticdata.d_customers ON d_customers.cust_sid = bs_transaction.cust_sid 
+	WHERE
+	    bs_transaction.create_date >= '20200901' -- AND bs_transaction.create_date < '20200901'
+		AND d_customers.internal_staff = 'N' 
+		AND bs_transaction.quantity >= 0 
+		AND d_customers.internal_staff = 'N' 
+		AND d_customers.group_name = 'Khách hàng' 
+		AND d_customers.phone IS NOT NULL
+	ORDER BY 3 ASC
+	),
+	tab2 AS (
+	SELECT EXTRACT
+		( YEAR FROM CAST ( f_orders.date_id AS DATE ) ) AS nam,
+		EXTRACT ( MONTH FROM CAST ( f_orders.date_id AS DATE ) ) AS thang,
+		to_char( CAST ( f_orders.date_id AS DATE ), 'yyyy-mm-dd' ) AS ngay,
+		f_orders.store_id AS ma_cua_hang,
+		f_orders.document_code AS ma_don_hang,
+		d_customers.cust_sid AS ma_khach_hang_bs,
+		d_customers."id" AS ma_khach_hang,
+		d_customers.customer_id AS customer_id,
+		d_customers.phone AS phone,
+		d_customers.full_name AS name,
+		f_orders.total_amount AS gtdh_vnd -- total amount include discounts
+		
+	FROM
+		analyticdata.f_orders
+		LEFT JOIN analyticdata.d_customers ON f_orders.customer_id = d_customers."id"
+		-- LEFT JOIN f_order_line_items ON f_orders.document_code = f_order_line_items.document_code 
+	WHERE
+		CAST ( f_orders.date_id AS DATE ) < '20210901'
+		AND d_customers.internal_staff = 'N' 
+		AND f_orders.document_code LIKE'%POS%' 
+		AND d_customers.group_name = 'Khách hàng' 
+		AND d_customers.phone IS NOT NULL 
+		OR d_customers.phone2 IS NOT NULL 
+	ORDER BY 3 DESC
+	),
+	tab3 AS
+	(SELECT * FROM tab1 UNION SELECT * FROM tab2 ORDER BY 3 ASC)
+	
+	SELECT
+	    ma_khach_hang_bs,
+	    ma_khach_hang,
+	    customer_id,
+	    phone,
+	    name,
+	    sum(gtdh_vnd) AS revenue_2020
+	FROM tab3
+	GROUP BY 1, 2, 3, 4, 5
+	
+		
+	
