@@ -1,0 +1,49 @@
+/*select distinct store_id, store_code, store_name from analyticdata.d_stores where store_code like '%PAT%'
+
+select distinct vendor, store_no from analyticdata.bs_transaction where vendor = 'PAT' */
+
+-- patek phillipe: store_no = store_id = 1000259
+
+with tab1 as
+(select
+f_orders.date_id,f_orders.customer_id as id, d_customers.customer_id as customer_id, d_customers.cust_sid, d_customers.full_name, d_customers.phone, f_order_line_items.document_code as ma_don_hang, f_order_line_items.product_name, f_order_line_items.item_qty, 
+f_order_line_items.line_amount, f_order_line_items.discount_amount
+from analyticdata.f_orders 
+left join analyticdata.d_customers on f_orders.customer_id = d_customers.id
+left join analyticdata.f_order_line_items on f_orders.document_code = f_order_line_items.document_code
+where 
+f_orders.store_id = '1000259' 
+and cast(f_orders.order_id as varchar) not in (select cast(f_returns.order_return_id as varchar) as order_id from analyticdata.f_returns)
+and f_orders.date_id >= '20201231' and f_orders.date_id < '20210908' order by date_id asc),
+
+tab2 as
+(select distinct
+customer_id, cust_sid, full_name, phone, ma_don_hang, product_name, sum(item_qty) as slsp, sum(line_amount)-sum(discount_amount) as dt
+from tab1 group by 1, 2, 3, 4, 5, 6),
+
+------------------------ lấy dữ liệu 2020
+
+tab3 as
+(select
+to_char(bs_transaction.create_date,'yyyy-mm-dd') as create_date, bs_transaction.cust_sid, d_customers.customer_id, d_customers.full_name, d_customers.phone, bs_transaction.invc_sid as ma_don_hang, 
+bs_transaction.family as product_name, bs_transaction.quantity, bs_transaction.paymentnit_vnd, bs_transaction.paymentnit
+from analyticdata.bs_transaction
+full join analyticdata.d_customers on bs_transaction.cust_sid = d_customers.cust_sid
+where bs_transaction.store_no = '1000259' and bs_transaction.create_date >= '20200101' and bs_transaction.cust_sid is not null order by 1 asc),
+
+tab4 as
+(select distinct
+customer_id, cust_sid, full_name, phone, ma_don_hang, product_name, sum(quantity) as slsp, sum(paymentnit_vnd) as dt
+from tab3 group by 1, 2, 3, 4, 5, 6),
+
+tab5 as
+(select * from tab2 union select * from tab4)
+
+select distinct
+customer_id, cust_sid, full_name, phone, ma_don_hang,
+case when ma_don_hang like '%POS/PAT%' then 'Order 2021' else 'Order 2020' end as nhom_dh,
+product_name,
+sum(slsp) as slsp,
+sum(dt) as dt
+from tab5
+group by 1, 2, 3, 4, 5, 6, 7
