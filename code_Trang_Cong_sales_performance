@@ -1,0 +1,52 @@
+# 1. Transaction
+with 
+txn_new
+as
+(
+select DISTINCT date(date_id) date_id, hour_id, customer_id, document_code, line_amount as total_amount, discount_amount
+, brand_code, cast(store_id as VARCHAR) as store_id
+, cast(product_id as VARCHAR) as product_id, product_name, product_group_name as category, item_qty
+from analyticdata.f_order_line_items
+)
+,
+
+txn_old 
+as
+(
+select DISTINCT date(invoice_date) as date_id, cast(EXTRACT(HOUR from create_date) as VARCHAR) as hour_id,
+case when d_customers.id is not null then d_customers.id else bs_transaction.cust_sid end customer_id
+, invc_sid as document_code, paymentnit_vnd as total_amount, 0 as discount_amount
+, cast(vendor as VARCHAR) as brand_code, cast(store_no as VARCHAR) as store_id
+, item as product_id, desc3 as product_name, family as category, quantity as item_qty
+from analyticdata.bs_transaction
+LEFT JOIN analyticdata.d_customers on bs_transaction.cust_sid = d_customers.cust_sid
+)
+
+select * from txn_new
+union all
+select * from txn_old
+
+--------------------------------------------------------------------------
+#2. Customer
+SELECT distinct id, customer_id, cust_sid
+, group_id, group_name, full_name
+, address, created_date, date(dob) dob, gender
+, case when phone is not null then phone else phone2 end phone
+, case when email is not null then email else email2 end email
+, case when membership is null then 'Hội viên thường' else membership end membership
+, internal_staff, nationality_name
+, ward_code, ward_name, district_code, district_name, province_code, province_name, country_code, country_name
+FROM analyticdata.d_customers
+
+--------------------------------------------------------------------------
+#3. Stores
+SELECT distinct store_id, store_code, store_name, status
+, address
+, case when (store_code like 'HN%' or store_code like 'HNA%') then 'Hà Nội'
+       when store_code like 'HCM%' then 'Hồ Chí Minh'
+			 when (LOWER(ADDRESS) like '%hcm%' or LOWER(ADDRESS) like '%ho%chi%minh%' or LOWER(ADDRESS) like '%hồ%chí%minh%') then 'Hồ Chí Minh' else 'Hà Nội' end province
+FROM analyticdata.d_stores
+
+---------------------------------------------------------------------------
+#4. Brands
+SELECT distinct brand_code, brand_name FROM analyticdata.d_brands
