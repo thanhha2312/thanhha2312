@@ -1,0 +1,91 @@
+WITH cust AS (
+	SELECT
+		a.id,
+		a.full_name,
+		a.phone,
+		a.gender 
+	FROM
+		prod_customer_service.customer a 
+	WHERE
+		a.gender = 'female' 
+		AND MONTH (
+		CAST( DATE_ADD( a.birthday, INTERVAL 7 HOUR ) AS date )) != 10 
+	),
+	dep AS (
+	SELECT
+		s.id AS source_id,
+		d.id AS department_id,
+		d.department_lv1,
+		d.department_lv2 
+	FROM
+		prod_core_service.source s
+		LEFT JOIN prod_account_service.department d ON s.department_id = d.id 
+	WHERE
+		1 = 1 
+		AND department_lv1 = 'KINH DOANH ONLINE' 
+		AND department_lv2 = 'CN THE LIGHT' 
+	),
+	tab1 AS (
+	SELECT DISTINCT
+		cust.id AS customer_id,
+		ord.customer_phone_number,
+		first_value( ord.id ) over ( PARTITION BY ord.customer_id ORDER BY ord.finished_on DESC ) last_order_id,
+		source_id 
+	FROM
+		cust
+		LEFT JOIN prod_order_service.orders ord ON ord.customer_id = cust.id 
+	WHERE
+		CAST( DATE_ADD( ord.created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-01-01' 
+		AND '2022-08-22' 
+		AND ord.is_deleted = 0 
+		AND ord.finished_on IS NOT NULL 
+		AND ord.STATUS = 'finished' 
+		AND ord.channel != 'POS' 
+	),
+	tab2 AS ( SELECT tab1.*, dep.department_lv2 FROM tab1 INNER JOIN dep ON dep.source_id = tab1.source_id ),
+	tab3 AS (
+	SELECT
+		tab2.customer_id,
+		tab2.customer_phone_number,
+		sum( ord.total ) AS amount 
+	FROM
+		tab2
+		LEFT JOIN prod_order_service.orders ord ON ord.customer_id = tab2.customer_id 
+	WHERE
+		CAST( DATE_ADD( ord.created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-01-01' 
+		AND '2022-08-22' 
+		AND ord.is_deleted = 0 
+		AND ord.finished_on IS NOT NULL 
+		AND ord.STATUS = 'finished' 
+	GROUP BY
+		1,
+		2 
+	),
+	tab4 AS (
+	SELECT
+		tab3.customer_id,
+		sum( c.total ) AS amount 
+	FROM
+		tab3
+		LEFT JOIN prod_order_service.orders c ON tab3.customer_id = c.customer_id 
+	WHERE
+		CAST( DATE_ADD( c.created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-08-23' 
+		AND '2022-10-13' 
+		AND c.is_deleted = 0 
+		AND c.finished_on IS NOT NULL 
+		AND c.STATUS = 'finished' 
+	GROUP BY
+		tab3.customer_id 
+	) SELECT
+	tab3.customer_id,
+	cust.full_name,
+	cust.phone,
+	cust.gender,
+	tab3.amount 
+FROM
+	tab3
+	LEFT JOIN cust ON tab3.customer_id = cust.id 
+WHERE
+	tab3.customer_id NOT IN ( SELECT customer_id FROM tab4 ) 
+ORDER BY
+	tab3.amount DESC
