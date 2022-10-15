@@ -1,0 +1,104 @@
+WITH cust AS (
+	SELECT
+		b.customer_id,
+		MIN(
+		CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date )) AS first_order_date 
+	FROM
+		prod_order_service.orders b 
+	GROUP BY
+		b.customer_id 
+	),
+	store_department AS (
+	SELECT
+		s.id AS store_id,
+		d.id AS department_id,
+		d.department_lv1,
+		d.department_lv2,
+		s.city_name 
+	FROM
+		prod_core_service.store s
+		LEFT JOIN prod_account_service.department d ON s.department_id = d.id 
+	WHERE
+		1 = 1 
+		AND department_lv1 = 'KINH DOANH OFFLINE' 
+	),
+	tab2 AS (
+	SELECT
+		a.id,
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) AS date,
+		a.customer_id,
+		CAST( DATE_ADD( a.finished_on, INTERVAL 7 HOUR ) AS date ) AS finish_date,
+		a.return_status,
+		a.store,
+		b.department_lv2,
+		a.store_id,
+		a.total,
+		a.total_discount,
+		a.total_quantities 
+	FROM
+		prod_order_service.orders a
+		LEFT JOIN store_department b ON b.store_id = a.store_id 
+	WHERE
+		CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) > '2022-09-30' 
+		AND a.is_deleted = 0 
+		AND a.finished_on IS NOT NULL 
+		AND a.STATUS = 'finished' 
+		AND a.channel = 'POS' 
+	),
+	tab3 AS (
+	SELECT
+		tab2.date,
+		tab2.department_lv2,
+		tab2.store,
+		tab2.store_id,
+		tab2.customer_id,
+		count( DISTINCT tab2.id ) AS nb_order,
+		sum( tab2.total ) AS total_amount,
+		sum( tab2.total_discount ) AS total_discount,
+		sum( tab2.total_quantities ) AS nb_qty_prod 
+	FROM
+		tab2 
+	GROUP BY
+		1,
+		2,
+		3,
+		4 
+	),
+	tab4 AS (
+	SELECT
+		tab3.*,
+		cust.first_order_date,
+	CASE
+			
+			WHEN cust.first_order_date = tab3.date 
+			AND tab3.total_amount = 0 THEN
+				'prospect' 
+				WHEN cust.first_order_date = tab3.date 
+				AND tab3.total_amount != 0 THEN
+					'new' ELSE 'old' 
+					END AS customer_type 
+			FROM
+				tab3
+				LEFT JOIN cust ON tab3.customer_id = cust.customer_id 
+			) SELECT
+			tab4.date,
+			tab4.department_lv2,
+			tab4.store_id,
+			tab4.store,
+			sum( CASE WHEN tab4.customer_type = 'prospect' THEN 1 ELSE 0 END ) AS slkh_prospect,
+			sum( CASE WHEN tab4.customer_type = 'new' THEN 1 ELSE 0 END ) AS slkh_new,
+			sum( CASE WHEN tab4.customer_type IN ( 'prospect', 'new' ) AND tab4.total_amount = 0 THEN tab4.nb_order ELSE NULL END ) AS sldh_0d,
+			sum( CASE WHEN tab4.customer_type IN ( 'prospect', 'new' ) AND tab4.total_amount != 0 THEN tab4.nb_order ELSE NULL END ) AS sldh_not_0d,
+			sum( CASE WHEN tab4.customer_type = 'old' AND tab4.total_amount = 0 THEN 1 ELSE 0 END ) AS slkh_old_0d,
+			sum( CASE WHEN tab4.customer_type = 'old' AND tab4.total_amount != 0 THEN 1 ELSE 0 END ) AS slkh_old_not_0d,
+			sum( CASE WHEN tab4.customer_type = 'old' AND tab4.total_amount = 0 THEN tab4.nb_order ELSE NULL END ) AS old_sldh_0d,
+			sum( CASE WHEN tab4.customer_type = 'old' AND tab4.total_amount != 0 THEN tab4.nb_order ELSE NULL END ) AS old_sldh_not_0d,
+			sum( tab4.total_amount ) AS total_amount,
+			sum( CASE WHEN tab4.total_amount != 0 THEN tab4.nb_order ELSE NULL END ) AS total_sldh_not_0d,
+			sum( tab4.total_discount ) AS total_discount 
+		FROM
+			tab4 
+		GROUP BY
+			1,
+		2,
+	3
