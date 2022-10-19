@@ -1,0 +1,155 @@
+WITH cust AS (
+	SELECT
+		g.id,
+		CAST( DATE_ADD( g.birthday, INTERVAL 7 HOUR ) AS date ) AS birthday,
+		g.customer_level_name,
+		g.customer_group_name,
+		g.email,
+		g.full_name,
+		g.gender,
+		g.phone,
+		CAST( DATE_ADD( g.wedding_date, INTERVAL 7 HOUR ) AS date ) AS wedding_date 
+	FROM
+		prod_customer_service.customer g 
+	WHERE
+		g.is_deleted = 0 -- AND CAST( DATE_ADD( g.wedding_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-07-01' AND '2022-09-30'
+		
+		AND g.customer_level_name IN ( 'VIP R', 'VIP D', 'SIÊU VIP' ) 
+		AND g.id IN (
+		SELECT
+			duc.customer_id 
+		FROM
+			prod_promotion_service.price_rule pr
+			JOIN prod_promotion_service.discount_code dc ON dc.price_rule_id = pr.id
+			LEFT JOIN prod_promotion_service.discount_usage_count duc ON duc.discount_code = dc.CODE 
+		WHERE
+			dc.CODE LIKE '%CUOI%' 
+		) 
+	),
+	store_department AS (
+	SELECT
+		s.id AS store_id,
+		d.id AS department_id,
+		d.department_lv1,
+		d.department_lv2,
+		s.city_name 
+	FROM
+		prod_core_service.store s
+		LEFT JOIN prod_account_service.department d ON s.department_id = d.id 
+	WHERE
+		1 = 1 
+		AND department_lv1 = 'KINH DOANH OFFLINE' 
+	),
+	source_department AS (
+	SELECT
+		s.id AS source_id,
+		d.id AS department_id,
+		d.department_lv1,
+		d.department_lv2 
+	FROM
+		prod_core_service.source s
+		LEFT JOIN prod_account_service.department d ON s.department_id = d.id 
+	WHERE
+		1 = 1 
+		AND department_lv1 = 'KINH DOANH ONLINE' 
+	),
+	ord AS (
+	SELECT
+		a.id,
+		a.channel,
+	CASE
+			
+			WHEN a.channel = 'POS' THEN
+			a.store 
+			WHEN a.channel != 'POS' THEN
+			a.source ELSE NULL 
+		END AS shop_name,
+		a.customer_id,
+		a.customer_phone_number,
+		a.created_date,
+		a.finished_on,-- a.store_id AS shop_id,
+-- a.store AS shop_name,
+-- a.source_id,
+-- a.source,
+		a.total,
+		a.total_quantities,
+		COALESCE ( std.department_lv1, sod.department_lv1, 'Khác' ) AS department_lv1,
+		COALESCE ( std.department_lv2, sod.department_lv2, 'Khác' ) AS department_lv2 
+	FROM
+		prod_order_service.orders a
+		LEFT JOIN store_department std ON std.store_id = a.store_id 
+		AND a.channel_code = 'POS'
+		LEFT JOIN source_department sod ON sod.source_id = a.source_id 
+		AND a.channel_code <> 'POS' 
+	WHERE
+		CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-07-01' 
+		AND '2022-09-30' 
+		AND a.`status` = 'finished' 
+	),
+	last_order AS (
+	SELECT DISTINCT
+		ord.customer_id,
+		ord.customer_phone_number,
+		first_value( ord.finished_on ) over ( PARTITION BY customer_id ORDER BY finished_on ASC ) first_finished_on,
+		first_value( ord.finished_on ) over ( PARTITION BY customer_id ORDER BY finished_on DESC ) last_finished_on,
+		first_value( ord.shop_name ) over ( PARTITION BY customer_id ORDER BY finished_on DESC ) last_shop_name 
+	FROM
+		ord 
+	),
+	dt AS (
+	SELECT
+		ord.customer_id,
+		sum( ord.total ) AS dt,
+		count( DISTINCT ord.id ) AS sldh,
+		sum( CASE WHEN CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-07-01' AND '2022-07-31' THEN ord.total ELSE 0 END ) AS dt_07,
+		sum( CASE WHEN CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-08-01' AND '2022-08-31' THEN ord.total ELSE 0 END ) AS dt_08,
+		sum( CASE WHEN CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-09-01' AND '2022-09-30' THEN ord.total ELSE 0 END ) AS dt_09,
+		sum( CASE WHEN CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-07-01' AND '2022-07-31' THEN 1 ELSE 0 END ) AS sldh_07,
+		sum( CASE WHEN CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-08-01' AND '2022-08-31' THEN 1 ELSE 0 END ) AS sldh_08,
+		sum( CASE WHEN CAST( DATE_ADD( created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-09-01' AND '2022-09-30' THEN 1 ELSE 0 END ) AS sldh_09 
+	FROM
+		ord 
+	GROUP BY
+		ord.customer_id 
+	) SELECT
+	cust.*,
+	MONTH ( cust.wedding_date ) AS wedding_month,
+	CAST( DATE_ADD( last_order.first_finished_on, INTERVAL 7 HOUR ) AS date ) AS first_order_date,
+	CAST( DATE_ADD( last_order.last_finished_on, INTERVAL 7 HOUR ) AS date ) AS last_order_date,
+	last_order.last_shop_name,
+	dt.dt,
+	dt.sldh,
+CASE
+		
+		WHEN MONTH ( cust.wedding_date ) = 7 THEN
+		dt.dt_07 ELSE NULL 
+	END AS dt_07,
+CASE
+		
+		WHEN MONTH ( cust.wedding_date ) = 7 THEN
+		dt.sldh_07 ELSE NULL 
+	END AS sldh_07,
+CASE
+		
+		WHEN MONTH ( cust.wedding_date ) = 8 THEN
+		dt.dt_08 ELSE NULL 
+	END AS dt_08,
+CASE
+		
+		WHEN MONTH ( cust.wedding_date ) = 8 THEN
+		dt.sldh_08 ELSE NULL 
+	END AS sldh_08,
+CASE
+		
+		WHEN MONTH ( cust.wedding_date ) = 9 THEN
+		dt.dt_09 ELSE NULL 
+	END AS dt_09,
+CASE
+		
+		WHEN MONTH ( cust.wedding_date ) = 9 THEN
+		dt.sldh_09 ELSE NULL 
+	END AS sldh_09 
+FROM
+	cust
+	LEFT JOIN last_order ON cust.id = last_order.customer_id
+	LEFT JOIN dt ON cust.id = dt.customer_id
