@@ -1,0 +1,861 @@
+/*
+-- product_table
+SELECT
+	a.id as variant_id,
+	a.sku,
+	a.`name`,
+	a.color,
+	a.size,
+	a.barcode,
+	b.`name` as product_name,
+	b.category,
+	c.retail_price,
+	c.cost_price,
+	c.currency
+FROM prod_product_service.variant a
+LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+LEFT JOIN prod_product_service.variant_price c ON c.id = a.id
+WHERE a.sku = 'APN3700-TNA-L';
+
+
+SELECT 
+	inv.store_id,
+	inv.sku,
+	inv.transaction_date,
+	SUM(quantity) as qty
+FROM
+(SELECT 
+	d.store_id,
+	d.sku,
+	CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+	quantity
+FROM prod_inventory_service.inventories_history d
+WHERE d.store_id = 178
+AND d.sku IN ('APN3700-TNA-L', 'VNK5298-KKO-5')) inv
+GROUP BY 1, 2, 3 
+ORDER BY 3 ASC; 
+*/ ####-------------------------------### 1. Step 1: tồn kho đầu kỳ
+WITH recursive all_dates ( dt ) AS ( -- anchor
+	SELECT '2022-01-01' dt UNION ALL -- recursion with stop condition
+SELECT dt + INTERVAL 1 DAY FROM all_dates WHERE dt < CURRENT_DATE ),
+tab1 AS (
+	SELECT
+		inv.store_id,
+		inv.sku,
+		inv.transaction_date,
+		SUM( quantity ) AS qty 
+	FROM
+		(
+		SELECT
+			d.store_id,
+			d.sku,
+			CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+			quantity 
+		FROM
+			prod_inventory_service.inventories_history d 
+		WHERE
+			d.store_id = 178 
+			AND d.sku = 'APN3700-TNA-L' 
+		) inv 
+	GROUP BY
+		1,
+		2,
+		3 
+	),
+	du_dau_ky AS (
+	SELECT
+		tab4.store_id,
+		tab4.sku,
+		tab4.date,
+		DATE_ADD( tab4.date, INTERVAL 1 DAY ) AS next_day,
+		tab4.cumulative_sum 
+	FROM
+		(
+		SELECT
+			tab3.store_id,
+			tab3.sku,
+			tab3.date,
+			sum( tab3.quantity ) over ( ORDER BY tab3.date ) AS cumulative_sum 
+		FROM
+			(
+			SELECT
+			CASE
+					
+				WHEN
+					tab2.store_id IS NULL THEN
+						'178' ELSE tab2.store_id 
+						END AS store_id,
+				CASE
+						
+						WHEN tab2.sku IS NULL THEN
+						'APN3700-TNA-L' ELSE tab2.sku 
+					END AS sku,
+					tab2.date,
+					tab2.quantity 
+				FROM
+					(
+					SELECT
+						tab1.store_id,
+						tab1.sku,
+						d.dt date,
+						COALESCE ( tab1.qty, 0 ) quantity 
+					FROM
+						all_dates d
+						LEFT JOIN tab1 ON tab1.transaction_date = d.dt 
+					ORDER BY
+						d.dt 
+					) tab2 
+				) tab3 
+			) tab4 
+		),####------------------------------------------ #### step 2 - nhập kho - nhập mua từ NCC
+		t1 AS (
+		SELECT
+			inv.store_id,
+			inv.sku,
+			inv.transaction_date,
+			SUM( quantity ) AS qty 
+		FROM
+			(
+			SELECT
+				d.store_id,
+				d.sku,
+				CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+				d.quantity 
+			FROM
+				prod_inventory_service.inventories_history d 
+			WHERE
+				d.store_id = 178 
+				AND d.sku = 'APN3700-TNA-L' 
+				AND d.document_type = 'purchase_order' 
+				AND d.quantity > 0 
+			) inv 
+		GROUP BY
+			1,
+			2,
+			3 
+		),
+		t2 AS (
+		SELECT
+			t1.store_id,
+			t1.sku,
+			d.dt date,
+			COALESCE ( t1.qty, 0 ) quantity 
+		FROM
+			all_dates d
+			LEFT JOIN t1 ON t1.transaction_date = d.dt 
+		ORDER BY
+			d.dt 
+		),
+		t3 AS (
+		SELECT
+		CASE
+				
+			WHEN
+				t2.store_id IS NULL THEN
+					'178' ELSE t2.store_id 
+					END AS store_id,
+			CASE
+					
+					WHEN t2.sku IS NULL THEN
+					'APN3700-TNA-L' ELSE t2.sku 
+				END AS sku,
+				t2.date,
+				t2.quantity 
+			FROM
+				t2 
+			),###-------------------- ### step3: xuất kho - trả lại NCC
+			t4 AS (
+			SELECT
+				inv.store_id,
+				inv.sku,
+				inv.transaction_date,
+				SUM( quantity ) AS qty 
+			FROM
+				(
+				SELECT
+					d.store_id,
+					d.sku,
+					CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+					d.quantity 
+				FROM
+					prod_inventory_service.inventories_history d 
+				WHERE
+					d.store_id = 178 
+					AND d.sku = 'APN3700-TNA-L' 
+					AND d.document_type = 'purchase_order' 
+					AND d.quantity < 0 
+				) inv 
+			GROUP BY
+				1,
+				2,
+				3 
+			),
+			t5 AS (
+			SELECT
+				t4.store_id,
+				t4.sku,
+				d.dt date,
+				COALESCE ( t4.qty, 0 ) quantity 
+			FROM
+				all_dates d
+				LEFT JOIN t4 ON t4.transaction_date = d.dt 
+			ORDER BY
+				d.dt 
+			),
+			t6 AS (
+			SELECT
+			CASE
+					
+				WHEN
+					t5.store_id IS NULL THEN
+						'178' ELSE t5.store_id 
+						END AS store_id,
+				CASE
+						
+						WHEN t5.sku IS NULL THEN
+						'APN3700-TNA-L' ELSE t5.sku 
+					END AS sku,
+					t5.date,
+					t5.quantity 
+				FROM
+					t5 
+				),###-------------------- ### step4: Nhập kho - nhận hàng chuyển kho
+				t7 AS (
+				SELECT
+					inv.store_id,
+					inv.sku,
+					inv.transaction_date,
+					SUM( quantity ) AS qty 
+				FROM
+					(
+					SELECT
+						d.store_id,
+						d.sku,
+						CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+						d.quantity 
+					FROM
+						prod_inventory_service.inventories_history d 
+					WHERE
+						d.store_id = 178 
+						AND d.sku = 'APN3700-TNA-L' 
+						AND d.document_type = 'inventory_transfer' 
+						AND d.quantity > 0 
+					) inv 
+				GROUP BY
+					1,
+					2,
+					3 
+				),
+				t8 AS (
+				SELECT
+					t7.store_id,
+					t7.sku,
+					d.dt date,
+					COALESCE ( t7.qty, 0 ) quantity 
+				FROM
+					all_dates d
+					LEFT JOIN t7 ON t7.transaction_date = d.dt 
+				ORDER BY
+					d.dt 
+				),
+				t9 AS (
+				SELECT
+				CASE
+						
+					WHEN
+						t8.store_id IS NULL THEN
+							'178' ELSE t8.store_id 
+							END AS store_id,
+					CASE
+							
+							WHEN t8.sku IS NULL THEN
+							'APN3700-TNA-L' ELSE t8.sku 
+						END AS sku,
+						t8.date,
+						t8.quantity 
+					FROM
+						t8 
+					),####----------------------- ##### step5: Xuất kho - Xuất chuyển kho
+					t10 AS (
+					SELECT
+						inv.store_id,
+						inv.sku,
+						inv.transaction_date,
+						SUM( quantity ) AS qty 
+					FROM
+						(
+						SELECT
+							d.store_id,
+							d.sku,
+							CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+							d.quantity 
+						FROM
+							prod_inventory_service.inventories_history d 
+						WHERE
+							d.store_id = 178 
+							AND d.sku = 'APN3700-TNA-L' 
+							AND d.document_type = 'inventory_transfer' 
+							AND d.quantity < 0 
+						) inv 
+					GROUP BY
+						1,
+						2,
+						3 
+					),
+					t11 AS (
+					SELECT
+						t10.store_id,
+						t10.sku,
+						d.dt date,
+						COALESCE ( t10.qty, 0 ) quantity 
+					FROM
+						all_dates d
+						LEFT JOIN t10 ON t10.transaction_date = d.dt 
+					ORDER BY
+						d.dt 
+					),
+					t12 AS (
+					SELECT
+					CASE
+							
+						WHEN
+							t11.store_id IS NULL THEN
+								'178' ELSE t11.store_id 
+								END AS store_id,
+						CASE
+								
+								WHEN t11.sku IS NULL THEN
+								'APN3700-TNA-L' ELSE t11.sku 
+							END AS sku,
+							t11.date,
+							t11.quantity 
+						FROM
+							t11 
+						),###-------------------- ##### step6: Nhập kho - KH trả lại
+						t13 AS (
+						SELECT
+							inv.store_id,
+							inv.sku,
+							inv.transaction_date,
+							SUM( quantity ) AS qty 
+						FROM
+							(
+							SELECT
+								d.store_id,
+								d.sku,
+								CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+								d.quantity 
+							FROM
+								prod_inventory_service.inventories_history d 
+							WHERE
+								d.store_id = 178 
+								AND d.sku = 'APN3700-TNA-L' 
+								AND d.document_type IN ( 'return_order', 'order', 'return_po' ) 
+								AND d.quantity > 0 
+							) inv 
+						GROUP BY
+							1,
+							2,
+							3 
+						),
+						t14 AS (
+						SELECT
+							t13.store_id,
+							t13.sku,
+							d.dt date,
+							COALESCE ( t13.qty, 0 ) quantity 
+						FROM
+							all_dates d
+							LEFT JOIN t13 ON t13.transaction_date = d.dt 
+						ORDER BY
+							d.dt 
+						),
+						t15 AS (
+						SELECT
+						CASE
+								
+							WHEN
+								t14.store_id IS NULL THEN
+									'178' ELSE t14.store_id 
+									END AS store_id,
+							CASE
+									
+									WHEN t14.sku IS NULL THEN
+									'APN3700-TNA-L' ELSE t14.sku 
+								END AS sku,
+								t14.date,
+								t14.quantity 
+							FROM
+								t14 
+							),####------------------ #### step7 - Xuất kho - xuất bán
+							t16 AS (
+							SELECT
+								inv.store_id,
+								inv.sku,
+								inv.transaction_date,
+								SUM( quantity ) AS qty 
+							FROM
+								(
+								SELECT
+									d.store_id,
+									d.sku,
+									CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+									d.quantity 
+								FROM
+									prod_inventory_service.inventories_history d 
+								WHERE
+									d.store_id = 178 
+									AND d.sku = 'APN3700-TNA-L' 
+									AND d.document_type IN ( 'return_order', 'order', 'return_po' ) 
+									AND d.quantity < 0 
+								) inv 
+							GROUP BY
+								1,
+								2,
+								3 
+							),
+							t17 AS (
+							SELECT
+								t16.store_id,
+								t16.sku,
+								d.dt date,
+								COALESCE ( t16.qty, 0 ) quantity 
+							FROM
+								all_dates d
+								LEFT JOIN t16 ON t16.transaction_date = d.dt 
+							ORDER BY
+								d.dt 
+							),
+							t18 AS (
+							SELECT
+							CASE
+									
+								WHEN
+									t17.store_id IS NULL THEN
+										'178' ELSE t17.store_id 
+										END AS store_id,
+								CASE
+										
+										WHEN t17.sku IS NULL THEN
+										'APN3700-TNA-L' ELSE t17.sku 
+									END AS sku,
+									t17.date,
+									t17.quantity 
+								FROM
+									t17 
+								),###------------------ #### step8 - Nhập kho - số lượng hàng nhập khác
+								t19 AS (
+								SELECT
+									inv.store_id,
+									inv.sku,
+									inv.transaction_date,
+									SUM( quantity ) AS qty 
+								FROM
+									(
+									SELECT
+										d.store_id,
+										d.sku,
+										CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+										d.quantity 
+									FROM
+										prod_inventory_service.inventories_history d 
+									WHERE
+										d.store_id = 178 
+										AND d.sku = 'APN3700-TNA-L' 
+										AND d.document_type IN ( 'other_stock_in_out', 'stock_in_out_other' ) 
+										AND d.quantity > 0 
+									) inv 
+								GROUP BY
+									1,
+									2,
+									3 
+								),
+								t20 AS (
+								SELECT
+									t19.store_id,
+									t19.sku,
+									d.dt date,
+									COALESCE ( t19.qty, 0 ) quantity 
+								FROM
+									all_dates d
+									LEFT JOIN t19 ON t19.transaction_date = d.dt 
+								ORDER BY
+									d.dt 
+								),
+								t21 AS (
+								SELECT
+								CASE
+										
+									WHEN
+										t20.store_id IS NULL THEN
+											'178' ELSE t20.store_id 
+											END AS store_id,
+									CASE
+											
+											WHEN t20.sku IS NULL THEN
+											'APN3700-TNA-L' ELSE t20.sku 
+										END AS sku,
+										t20.date,
+										t20.quantity 
+									FROM
+										t20 
+									),####------------------ #### step9 - Xuất kho - số lượng SP xuất khác
+									t22 AS (
+									SELECT
+										inv.store_id,
+										inv.sku,
+										inv.transaction_date,
+										SUM( quantity ) AS qty 
+									FROM
+										(
+										SELECT
+											d.store_id,
+											d.sku,
+											CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+											d.quantity 
+										FROM
+											prod_inventory_service.inventories_history d 
+										WHERE
+											d.store_id = 178 
+											AND d.sku = 'APN3700-TNA-L' 
+											AND d.document_type IN ( 'other_stock_in_out', 'stock_in_out_other' ) 
+											AND d.quantity < 0 
+										) inv 
+									GROUP BY
+										1,
+										2,
+										3 
+									),
+									t23 AS (
+									SELECT
+										t22.store_id,
+										t22.sku,
+										d.dt date,
+										COALESCE ( t22.qty, 0 ) quantity 
+									FROM
+										all_dates d
+										LEFT JOIN t22 ON t22.transaction_date = d.dt 
+									ORDER BY
+										d.dt 
+									),
+									t24 AS (
+									SELECT
+									CASE
+											
+										WHEN
+											t23.store_id IS NULL THEN
+												'178' ELSE t23.store_id 
+												END AS store_id,
+										CASE
+												
+												WHEN t23.sku IS NULL THEN
+												'APN3700-TNA-L' ELSE t23.sku 
+											END AS sku,
+											t23.date,
+											t23.quantity 
+										FROM
+											t23 
+										),####-------------------- #### step10 Nhập kho - SL kiểm kê tăng
+										t25 AS (
+										SELECT
+											inv.store_id,
+											inv.sku,
+											inv.transaction_date,
+											SUM( quantity ) AS qty 
+										FROM
+											(
+											SELECT
+												d.store_id,
+												d.sku,
+												CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+												d.quantity 
+											FROM
+												prod_inventory_service.inventories_history d 
+											WHERE
+												d.store_id = 178 
+												AND d.sku = 'APN3700-TNA-L' 
+												AND d.document_type IN ( 'inventory_adjustment', 'init', 'smooth' ) 
+												AND d.quantity > 0 
+											) inv 
+										GROUP BY
+											1,
+											2,
+											3 
+										),
+										t26 AS (
+										SELECT
+											t25.store_id,
+											t25.sku,
+											d.dt date,
+											COALESCE ( t25.qty, 0 ) quantity 
+										FROM
+											all_dates d
+											LEFT JOIN t25 ON t25.transaction_date = d.dt 
+										ORDER BY
+											d.dt 
+										),
+										t27 AS (
+										SELECT
+										CASE
+												
+											WHEN
+												t26.store_id IS NULL THEN
+													'178' ELSE t26.store_id 
+													END AS store_id,
+											CASE
+													
+													WHEN t26.sku IS NULL THEN
+													'APN3700-TNA-L' ELSE t26.sku 
+												END AS sku,
+												t26.date,
+												t26.quantity 
+											FROM
+												t26 
+											),####------------------------ ##### step11 Xuất kho - SL kiểm kê giảm
+											t28 AS (
+											SELECT
+												inv.store_id,
+												inv.sku,
+												inv.transaction_date,
+												SUM( quantity ) AS qty 
+											FROM
+												(
+												SELECT
+													d.store_id,
+													d.sku,
+													CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+													d.quantity 
+												FROM
+													prod_inventory_service.inventories_history d 
+												WHERE
+													d.store_id = 178 
+													AND d.sku = 'APN3700-TNA-L' 
+													AND d.document_type IN ( 'inventory_adjustment', 'init', 'smooth' ) 
+													AND d.quantity < 0 
+												) inv 
+											GROUP BY
+												1,
+												2,
+												3 
+											),
+											t29 AS (
+											SELECT
+												t28.store_id,
+												t28.sku,
+												d.dt date,
+												COALESCE ( t28.qty, 0 ) quantity 
+											FROM
+												all_dates d
+												LEFT JOIN t28 ON t28.transaction_date = d.dt 
+											ORDER BY
+												d.dt 
+											),
+											t30 AS (
+											SELECT
+											CASE
+													
+												WHEN
+													t29.store_id IS NULL THEN
+														'178' ELSE t29.store_id 
+														END AS store_id,
+												CASE
+														
+														WHEN t29.sku IS NULL THEN
+														'APN3700-TNA-L' ELSE t29.sku 
+													END AS sku,
+													t29.date,
+													t29.quantity 
+												FROM
+													t29 
+												),########## product infos
+												t31 AS (
+												SELECT
+													a.id AS variant_id,
+													a.sku,
+													a.`name`,
+													a.color,
+													a.size,
+													a.barcode,
+													b.`name` AS product_name,
+													b.category,
+													c.retail_price,
+													c.cost_price,
+													c.currency 
+												FROM
+													prod_product_service.variant a
+													LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+													LEFT JOIN prod_product_service.variant_price c ON c.id = a.id 
+												WHERE
+													a.sku = 'APN3700-TNA-L' 
+												),####### step12: total: du_dau_ky, t31, t30,
+												t33 AS (
+												SELECT
+													t3.store_id,-- t3.sku,
+													t31.*,
+													t3.date,
+													du_dau_ky.cumulative_sum AS sl_du_dau_ki,
+													t3.quantity AS sl_nk_mua_tu_ncc,
+													t9.quantity AS sl_nk_nhan_hang_chuyen_kho,
+													t15.quantity AS sl_nk_kh_tra_lai,
+													t21.quantity AS sl_nk_sl_nhap_khac,
+													t27.quantity AS sl_nk_sl_kiem_ke_tang,
+													t6.quantity AS sl_xk_tra_lai_ncc,
+													t12.quantity AS sl_xk_xuat_chuyen_kho,
+													t18.quantity AS sl_xk_xuat_ban,
+													t24.quantity AS sl_xk_sl_xuat_khac,
+													t30.quantity AS sl_xk_sl_kiem_ke_giam 
+												FROM
+													t3
+													LEFT JOIN t31 ON t31.sku = t3.sku
+													LEFT JOIN du_dau_ky ON t3.store_id = du_dau_ky.store_id 
+													AND t3.date = du_dau_ky.next_day
+													LEFT JOIN t6 ON t3.store_id = t6.store_id 
+													AND t3.sku = t6.sku 
+													AND t3.date = t6.date
+													LEFT JOIN t9 ON t3.store_id = t9.store_id 
+													AND t3.sku = t9.sku 
+													AND t3.date = t9.date
+													LEFT JOIN t12 ON t3.store_id = t12.store_id 
+													AND t3.sku = t12.sku 
+													AND t3.date = t12.date
+													LEFT JOIN t15 ON t3.store_id = t15.store_id 
+													AND t3.sku = t15.sku 
+													AND t3.date = t15.date
+													LEFT JOIN t18 ON t3.store_id = t18.store_id 
+													AND t3.sku = t18.sku 
+													AND t3.date = t18.date
+													LEFT JOIN t21 ON t3.store_id = t21.store_id 
+													AND t3.sku = t21.sku 
+													AND t3.date = t21.date
+													LEFT JOIN t24 ON t3.store_id = t24.store_id 
+													AND t3.sku = t24.sku 
+													AND t3.date = t24.date
+													LEFT JOIN t27 ON t3.store_id = t27.store_id 
+													AND t3.sku = t27.sku 
+													AND t3.date = t27.date
+													LEFT JOIN t30 ON t3.store_id = t30.store_id 
+													AND t3.sku = t30.sku 
+													AND t3.date = t30.date 
+												),
+												t34 AS (
+												SELECT
+													s.city_name AS location_store,
+													d.department_lv1,
+													d.department_lv2,
+													t33.store_id,
+													s.NAME AS store_name,
+													t33.category,
+													t33.product_name,
+													t33.sku,
+													t33.NAME,
+													t33.color,
+													t33.size,
+													t33.barcode,
+													t33.retail_price,
+													t33.cost_price,
+													t33.currency,
+													t33.date AS transaction_date,
+													t33.sl_du_dau_ki,
+													t33.sl_du_dau_ki * t33.cost_price AS gt_du_dau_ki,
+													t33.sl_nk_mua_tu_ncc,
+													t33.sl_nk_mua_tu_ncc * t33.cost_price AS gt_nk_mua_tu_ncc,
+													t33.sl_nk_nhan_hang_chuyen_kho,
+													t33.sl_nk_nhan_hang_chuyen_kho * t33.cost_price AS gt_nk_nhan_hang_chuyen_kho,
+													t33.sl_nk_kh_tra_lai,
+													t33.sl_nk_kh_tra_lai * t33.cost_price AS gt_nk_kh_tra_lai,
+													t33.sl_nk_sl_nhap_khac,
+													t33.sl_nk_sl_nhap_khac * t33.cost_price AS gt_nk_sl_nhap_khac,
+													t33.sl_nk_sl_kiem_ke_tang,
+													t33.sl_nk_sl_kiem_ke_tang * t33.cost_price AS gt_nk_sl_kiem_ke_tang,
+													( t33.sl_nk_mua_tu_ncc + t33.sl_nk_nhan_hang_chuyen_kho + t33.sl_nk_kh_tra_lai + t33.sl_nk_sl_nhap_khac + t33.sl_nk_sl_kiem_ke_tang ) AS sl_total_nk,
+													( t33.sl_nk_mua_tu_ncc + t33.sl_nk_nhan_hang_chuyen_kho + t33.sl_nk_kh_tra_lai + t33.sl_nk_sl_nhap_khac + t33.sl_nk_sl_kiem_ke_tang )* t33.cost_price AS gt_total_nk,
+													t33.sl_xk_tra_lai_ncc,
+													t33.sl_xk_tra_lai_ncc * t33.cost_price AS gt_xk_tra_lai_ncc,
+													t33.sl_xk_xuat_chuyen_kho,
+													t33.sl_xk_xuat_chuyen_kho * t33.cost_price AS gt_xuat_chuyen_kho,
+													t33.sl_xk_xuat_ban,
+													t33.sl_xk_xuat_ban * t33.cost_price AS gt_xuat_ban,
+													t33.sl_xk_sl_xuat_khac,
+													t33.sl_xk_sl_xuat_khac * t33.cost_price AS gt_xuat_khac,
+													t33.sl_xk_sl_kiem_ke_giam,
+													t33.sl_xk_sl_kiem_ke_giam * t33.cost_price AS gt_kiem_ke_giam,
+													( t33.sl_xk_tra_lai_ncc + t33.sl_xk_xuat_chuyen_kho + t33.sl_xk_xuat_ban + t33.sl_xk_sl_xuat_khac + t33.sl_xk_sl_kiem_ke_giam ) AS sl_total_xk,
+													( t33.sl_xk_tra_lai_ncc + t33.sl_xk_xuat_chuyen_kho + t33.sl_xk_xuat_ban + t33.sl_xk_sl_xuat_khac + t33.sl_xk_sl_kiem_ke_giam )* t33.cost_price AS gt_total_xk,
+													t33.sl_du_dau_ki + ( t33.sl_nk_mua_tu_ncc + t33.sl_nk_nhan_hang_chuyen_kho + t33.sl_nk_kh_tra_lai + t33.sl_nk_sl_nhap_khac + t33.sl_nk_sl_kiem_ke_tang ) + ( t33.sl_xk_tra_lai_ncc + t33.sl_xk_xuat_chuyen_kho + t33.sl_xk_xuat_ban + t33.sl_xk_sl_xuat_khac + t33.sl_xk_sl_kiem_ke_giam ) AS sl_ton_cuoi_ki,
+													(
+													t33.sl_du_dau_ki + ( t33.sl_nk_mua_tu_ncc + t33.sl_nk_nhan_hang_chuyen_kho + t33.sl_nk_kh_tra_lai + t33.sl_nk_sl_nhap_khac + t33.sl_nk_sl_kiem_ke_tang ) + ( t33.sl_xk_tra_lai_ncc + t33.sl_xk_xuat_chuyen_kho + t33.sl_xk_xuat_ban + t33.sl_xk_sl_xuat_khac + t33.sl_xk_sl_kiem_ke_giam ))* t33.cost_price AS gt_ton_cuoi_ki 
+												FROM
+													t33
+													LEFT JOIN prod_core_service.store s ON t33.store_id = s.id
+													LEFT JOIN prod_account_service.department d ON s.department_id = d.id 
+												WHERE
+													t33.date BETWEEN '2022-10-17' 
+													AND '2022-10-23' 
+												),
+												t35 AS (
+												SELECT
+													t34.location_store,
+													t34.department_lv1,
+													t34.department_lv2,
+													t34.store_id,
+													t34.store_name,
+													t34.category,
+													t34.product_name,
+													t34.sku,
+													t34.NAME,
+													t34.color,
+													t34.size,
+													t34.barcode,
+													t34.retail_price,
+													t34.cost_price,
+													t34.currency,
+													first_value( t34.sl_du_dau_ki ) over ( PARTITION BY t34.sku ORDER BY t34.transaction_date ASC ) sl_du_dau_ki,
+													first_value( t34.gt_du_dau_ki ) over ( PARTITION BY t34.sku ORDER BY t34.transaction_date ASC ) gt_du_dau_ki,
+													sum( t34.sl_nk_mua_tu_ncc ) AS sl_nk_mua_tu_ncc,
+													sum( t34.gt_nk_mua_tu_ncc ) AS gt_nk_mua_tu_ncc,
+													sum( t34.sl_nk_nhan_hang_chuyen_kho ) AS sl_nk_nhan_hang_chuyen_kho,
+													sum( t34.gt_nk_nhan_hang_chuyen_kho ) AS gt_nk_nhan_hang_chuyen_kho,
+													sum( t34.sl_nk_kh_tra_lai ) AS sl_nk_kh_tra_lai,
+													sum( t34.gt_nk_kh_tra_lai ) AS gt_nk_kh_tra_lai,
+													sum( t34.sl_nk_sl_nhap_khac ) AS sl_nk_sl_nhap_khac,
+													sum( t34.gt_nk_sl_nhap_khac ) AS gt_nk_sl_nhap_khac,
+													sum( t34.sl_nk_sl_kiem_ke_tang ) AS sl_nk_sl_kiem_ke_tang,
+													sum( t34.gt_nk_sl_kiem_ke_tang ) AS gt_nk_sl_kiem_ke_tang,
+													sum( t34.sl_total_nk ) AS sl_total_nk,
+													sum( t34.gt_total_nk ) AS gt_total_nk,
+													sum( t34.sl_xk_tra_lai_ncc ) AS sl_xk_tra_lai_ncc,
+													sum( t34.gt_xk_tra_lai_ncc ) AS gt_xk_tra_lai_ncc,
+													sum( t34.sl_xk_xuat_chuyen_kho ) AS sl_xk_xuat_chuyen_kho,
+													sum( t34.gt_xuat_chuyen_kho ) AS gt_xuat_chuyen_kho,
+													sum( t34.sl_xk_xuat_ban ) AS sl_xk_xuat_ban,
+													sum( t34.gt_xuat_ban ) AS gt_xuat_ban,
+													sum( t34.sl_xk_sl_xuat_khac ) AS sl_xk_sl_xuat_khac,
+													sum( t34.gt_xuat_khac ) AS gt_xuat_khac,
+													sum( t34.sl_xk_sl_kiem_ke_giam ) AS sl_xk_sl_kiem_ke_giam,
+													sum( t34.gt_kiem_ke_giam ) AS gt_kiem_ke_giam,
+													sum( t34.sl_total_xk ) AS sl_total_xk,
+													sum( t34.gt_total_xk ) AS gt_total_xk 
+												FROM
+													t34 
+												GROUP BY
+													t34.location_store,
+													t34.department_lv1,
+													t34.department_lv2,
+													t34.store_id,
+													t34.store_name,
+													t34.category,
+													t34.product_name,
+													t34.sku,
+													t34.NAME,
+													t34.color,
+													t34.size,
+													t34.barcode,
+													t34.retail_price,
+													t34.cost_price,
+													t34.currency 
+												) SELECT
+												t35.*,
+												t35.sl_du_dau_ki + t35.sl_total_nk + t35.sl_total_xk AS sl_ton_cuoi_ki,
+												t35.gt_du_dau_ki + t35.gt_total_nk + t35.gt_total_xk AS gt_ton_cuoi_ki 
+										FROM
+	t35
