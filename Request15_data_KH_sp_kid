@@ -1,0 +1,55 @@
+WITH ord AS
+(SELECT
+	a.id,
+	a.order_id,
+	CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) AS created_date,
+	a.sku,
+	a.variant AS sku_name,
+	a.product_id,
+	a.product_code,
+	LEFT(a.product_code,3) AS prod_code,
+	b.category,
+	c.customer_id,
+	c.customer_phone_number
+FROM prod_order_service.order_line a
+LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+LEFT JOIN prod_order_service.orders c ON c.id = a.order_id
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) BETWEEN '2021-01-01' AND '2021-12-31'
+		AND a.is_deleted = 0
+		AND LEFT(a.product_code,3) IN ('VAK', 'BDK', 'SMK', 'QNK','QMK', 'QJK', 'TSK','SNK', 'QSK', 'CVK','BTK', 'SDK', 'ACK','HDK','VTK')
+),
+
+cust AS
+(SELECT  * 
+FROM 
+(SELECT
+	e.id,
+	e.full_name,
+	e.gender,
+	e.phone,
+	TIMESTAMPDIFF(
+			YEAR,
+			e.birthday,
+		NOW()) AS age,
+	f.last_order_type,
+	-- f.store_of_last_order_offline,
+	f.total_paid_amount
+FROM prod_customer_service.customer e
+LEFT JOIN prod_customer_service.reports f ON e.id = f.user_id
+) tab1
+WHERE tab1.age BETWEEN 22 AND 40
+AND tab1.total_paid_amount >1
+)
+
+SELECT  
+	ord.customer_id,
+	ord.customer_phone_number,
+	cust.full_name,
+	cust.gender,
+	cust.age,
+	cust.last_order_type,
+	cust.total_paid_amount
+FROM ord
+LEFT JOIN cust ON cust.id = ord.customer_id
+WHERE cust.age IS NOT NULL
