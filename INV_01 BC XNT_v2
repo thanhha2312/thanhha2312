@@ -1,0 +1,31 @@
+with recursive all_dates(dt) as (
+    -- anchor
+    select '2022-05-01' dt
+    union all 
+    -- recursion with stop condition
+    select dt + interval 1 day from all_dates where dt < CURRENT_DATE
+),
+
+prod AS 
+(SELECT DISTINCT
+	a.store_id,
+	a.variant_id,
+	b.sku,
+	b.`name`,
+	b.color,
+	b.size,
+	b.barcode,
+	c.`name` as product_name,
+	c.category,
+	d.retail_price,
+	d.cost_price,
+	d.currency
+FROM prod_inventory_service.inventories_history a
+LEFT JOIN prod_product_service.variant b ON b.id = a.variant_id
+LEFT JOIN prod_product_service.product c ON c.id = b.product_id
+LEFT JOIN prod_product_service.variant_price d ON d.id = b.id
+LEFT JOIN prod_core_service.store e ON e.id = a.store_id
+WHERE b.is_deleted = 0
+AND b.sku = 'APN3700-TNA-L'
+)
+SELECT * FROM prod, all_dates
