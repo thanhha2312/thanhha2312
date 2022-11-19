@@ -29,3 +29,72 @@ WHERE b.is_deleted = 0
 AND b.sku = 'APN3700-TNA-L'
 )
 SELECT * FROM prod, all_dates
+-------------------------------
+
+##### tính toán join bảng dim
+WITH recursive all_dates ( dt ) AS ( -- anchor
+	SELECT '2022-05-01' dt UNION ALL -- recursion with stop condition
+SELECT dt + INTERVAL 1 DAY FROM all_dates WHERE dt < CURRENT_DATE ),
+prod AS (
+	SELECT DISTINCT
+		a.store_id,
+		a.variant_id,
+		b.sku,
+		b.`name`,
+		b.color,
+		b.size,
+		b.barcode,
+		c.`name` AS product_name,
+		c.category,
+		d.retail_price,
+		d.cost_price,
+		d.currency 
+	FROM
+		prod_inventory_service.inventories_history a
+		LEFT JOIN prod_product_service.variant b ON b.id = a.variant_id
+		LEFT JOIN prod_product_service.product c ON c.id = b.product_id
+		LEFT JOIN prod_product_service.variant_price d ON d.id = b.id
+		LEFT JOIN prod_core_service.store e ON e.id = a.store_id 
+	WHERE
+		b.is_deleted = 0 
+		AND b.sku = 'APN3700-TNA-L' 
+	),
+	hist AS ( SELECT * FROM prod, all_dates ),
+	t16 AS (
+	SELECT
+		inv.store_id,
+		inv.sku,
+		inv.transaction_date,
+		SUM( quantity ) AS qty 
+	FROM
+		(
+		SELECT
+			d.store_id,
+			d.sku,
+			CAST( DATE_ADD( d.transaction_date, INTERVAL 7 HOUR ) AS date ) AS transaction_date,
+			d.quantity 
+		FROM
+			prod_inventory_service.inventories_history d 
+		WHERE
+			d.store_id = 178 
+			AND d.sku = 'APN3700-TNA-L' 
+			AND d.document_type IN ( 'return_order', 'order', 'return_po' ) 
+			AND d.quantity < 0 
+		) inv 
+	GROUP BY
+		1,
+		2,
+		3 
+	) SELECT
+	hist.*,
+	COALESCE ( t16.qty, 0 ) quantity 
+FROM
+	hist
+	LEFT JOIN t16 ON hist.store_id = t16.store_id 
+	AND hist.sku = t16.sku 
+	AND hist.dt = t16.transaction_date -- WHERE t16.qty < 0
+	
+ORDER BY
+	hist.store_id,
+	hist.sku,
+	hist.dt ASC
