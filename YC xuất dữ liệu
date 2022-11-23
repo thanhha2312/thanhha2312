@@ -89,33 +89,44 @@ WHERE
 (SELECT
 	a.id,
 	a.customer_id,
+	CASE 
+	WHEN a.channel IN ('Website','Web') THEN 'w'
+	ELSE 'Others'
+END AS channel_type,
 	a.customer_phone_number
 FROM prod_order_service.orders a
 WHERE
 		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
 		AND a.is_deleted = 0
-		AND a.channel IN ('Website','Web')
+		-- AND a.channel IN ('Website','Web')
 ),
 
-non_web AS
+w AS
 (SELECT
-	a.id,
-	a.customer_id,
-	a.customer_phone_number
-FROM prod_order_service.orders a
-WHERE
-		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
-		AND a.is_deleted = 0
-		AND a.channel NOT IN ('Website','Web')
-		-- AND a.customer_id IN (SELECT user_id FROM prod_customer_service.reports WHERE first_order_type = 'online')
+	w.customer_id,
+count(DISTINCT w.id) AS sldh_w
+FROM web w
+WHERE w.channel_type = 'w'
+GROUP BY w.customer_id
 ),
 
+o AS
+(SELECT
+	w.customer_id,
+count(DISTINCT w.id) AS sldh_o
+FROM web w
+WHERE w.channel_type = 'Others'
+GROUP BY w.customer_id
+),
 kh AS
-(SELECT *
-FROM web
-WHERE web.customer_id NOT in (SELECT non_web.customer_id FROM non_web)
+(SELECT 
+w.customer_id,
+w.sldh_w,
+o.sldh_o
+FROM w LEFT JOIN o ON w.customer_id = o.customer_id
 )
 
-SELECT 
-	count(DISTINCT kh.customer_id) as slkh
-FROM kh
+SELECT
+count(DISTINCT kh.customer_id) as slkh
+FROM kh 
+WHERE kh.sldh_o <1
