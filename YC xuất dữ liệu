@@ -1,0 +1,121 @@
+# SLKH mua  đầu  offline có mua trên web
+WITH ord AS
+(SELECT
+	a.id,
+	a.customer_id,
+	a.customer_phone_number
+FROM prod_order_service.orders a
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
+		AND a.is_deleted = 0
+		AND a.channel IN ('Website','Web')
+		AND a.customer_id IN (SELECT user_id FROM prod_customer_service.reports WHERE first_order_type = 'offline')
+)
+ SELECT
+ count(DISTINCT ord.customer_id) as slkh
+ FROM ord;
+ ---------------------------------
+ # SLKH mua đầu online có mua trên web
+ WITH ord AS
+(SELECT
+	a.id,
+	a.customer_id,
+	a.customer_phone_number
+FROM prod_order_service.orders a
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
+		AND a.is_deleted = 0
+		AND a.channel IN ('Website','Web')
+		AND a.customer_id IN (SELECT user_id FROM prod_customer_service.reports WHERE first_order_type = 'online')
+)
+ SELECT
+ count(DISTINCT ord.customer_id) as slkh
+ FROM ord;
+ ---------------------------------
+ # SLKH mua offline + web
+ WITH ord AS
+(SELECT
+	a.id,
+	a.customer_id,
+	a.customer_phone_number
+FROM prod_order_service.orders a
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
+		AND a.is_deleted = 0
+		AND a.channel IN ('POS','Website','Web')
+		-- AND a.customer_id IN (SELECT user_id FROM prod_customer_service.reports WHERE first_order_type = 'offline')
+)
+ SELECT
+ count(DISTINCT ord.customer_id) as slkh
+ FROM ord;
+ 
+ -----------------------------------
+ # SLKH mua online + web
+  WITH ord AS
+(SELECT
+	a.id,
+	a.customer_id,
+	a.customer_phone_number
+FROM prod_order_service.orders a
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
+		AND a.is_deleted = 0
+		AND a.channel != 'POS'
+		-- AND a.customer_id IN (SELECT user_id FROM prod_customer_service.reports WHERE first_order_type = 'offline')
+)
+ SELECT
+ count(DISTINCT ord.customer_id) as slkh
+ FROM ord;
+  -----------------------------------
+	# Tổng SLKH mua hàng
+	 WITH ord AS
+(SELECT
+	a.id,
+	a.customer_id,
+	a.customer_phone_number
+FROM prod_order_service.orders a
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
+		AND a.is_deleted = 0
+		-- AND a.channel != 'POS'
+		-- AND a.customer_id IN (SELECT user_id FROM prod_customer_service.reports WHERE first_order_type = 'offline')
+)
+ SELECT
+ count(DISTINCT ord.customer_id) as slkh
+ FROM ord;
+	---------------------------- 
+	# SLKH chỉ mua 1 mình web
+	WITH web AS
+(SELECT
+	a.id,
+	a.customer_id,
+	a.customer_phone_number
+FROM prod_order_service.orders a
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
+		AND a.is_deleted = 0
+		AND a.channel IN ('Website','Web')
+),
+
+non_web AS
+(SELECT
+	a.id,
+	a.customer_id,
+	a.customer_phone_number
+FROM prod_order_service.orders a
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-01-01'
+		AND a.is_deleted = 0
+		AND a.channel NOT IN ('Website','Web')
+		-- AND a.customer_id IN (SELECT user_id FROM prod_customer_service.reports WHERE first_order_type = 'online')
+),
+
+kh AS
+(SELECT *
+FROM web
+WHERE web.customer_id NOT in (SELECT non_web.customer_id FROM non_web)
+)
+
+SELECT 
+	count(DISTINCT kh.customer_id) as slkh
+FROM kh
