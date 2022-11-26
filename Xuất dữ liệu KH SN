@@ -1,0 +1,86 @@
+WITH cam AS (
+	SELECT
+		dc.CODE,
+		duc.order_id,
+		duc.customer_id,
+		dc.use_status 
+	FROM
+		prod_promotion_service.price_rule pr
+		JOIN prod_promotion_service.discount_code dc ON dc.price_rule_id = pr.id
+		LEFT JOIN prod_promotion_service.discount_usage_count duc ON duc.discount_code = dc.CODE 
+	WHERE
+		1 = 1 
+		AND LEFT ( dc.CODE, 2 ) = 'SN' 
+		AND duc.order_id IS NOT NULL 
+		AND duc.customer_id IS NOT NULL 
+	),
+	t1 AS (
+	SELECT
+		e.id,
+		f.last_order_type,
+		CAST( DATE_ADD( e.birthday, INTERVAL 7 HOUR ) AS date ) AS birthday,
+		MONTH ( e.birthday ) AS MONTH 
+	FROM
+		prod_customer_service.customer e
+		LEFT JOIN prod_customer_service.reports f ON e.id = f.user_id 
+	WHERE
+		e.birthday IS NOT NULL 
+	),
+	cust AS (
+	SELECT
+		t1.last_order_type,
+		t1.MONTH AS month_birth,
+		count( DISTINCT t1.id ) AS kh 
+	FROM
+		t1 
+	GROUP BY
+		1,
+		2 
+	),
+	t2 AS (
+	SELECT
+		cam.CODE,
+		cam.order_id,
+		cam.customer_id,
+		ord.total,
+		ord.total_discount,
+		t1.last_order_type,
+		t1.birthday,
+		t1.MONTH 
+	FROM
+		cam
+		LEFT JOIN t1 ON t1.id = cam.customer_id
+		LEFT JOIN prod_order_service.orders ord ON ord.id = cam.order_id 
+	WHERE
+		CAST( DATE_ADD( ord.finished_on, INTERVAL 7 HOUR ) AS date ) BETWEEN '2022-01-01' 
+		AND '2022-11-26' 
+		AND ord.is_deleted = 0 
+	),
+	t3 AS (
+	SELECT
+		t2.last_order_type,
+		t2.MONTH,
+		count( DISTINCT t2.customer_id ) AS slkh_mua,
+		sum( t2.total ) AS dt,
+		sum( t2.total_discount ) AS discount_đh 
+	FROM
+		t2 
+	GROUP BY
+		1,
+		2 
+	ORDER BY
+		1,
+		2 DESC 
+	) SELECT
+	t3.last_order_type,
+	t3.MONTH,
+	cust.kh,
+	t3.slkh_mua,
+	t3.slkh_mua / cust.kh AS cr,
+	t3.dt,
+	t3.discount_đh,
+	t3.dt + t3.discount_đh AS tong_ban 
+FROM
+	t3
+	LEFT JOIN cust ON t3.last_order_type = cust.last_order_type 
+	AND t3.MONTH = cust.month_birth
