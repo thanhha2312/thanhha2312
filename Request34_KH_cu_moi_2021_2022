@@ -1,0 +1,105 @@
+WITH o AS
+(SELECT
+	o.store_id,
+	o.store,
+	d.department_lv2,
+	o.id AS order_id,
+	CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) AS date) AS ngay_mua_hang,
+	o.customer_id
+FROM prod_order_service.orders o
+LEFT JOIN prod_core_service.store s ON s.id = o.store_id
+LEFT JOIN prod_account_service.department d ON d.id = s.department_id
+WHERE
+CAST(DATE_ADD(o.finished_on,INTERVAL 7 HOUR) as date) >= '2021-01-01'
+AND o.`status` = 'finished'
+AND o.return_status = 'unreturned'
+AND o.is_deleted = 0
+AND o.channel = 'POS'
+),
+
+cu AS
+(SELECT
+	o.store_id,
+	o.store,
+	o.department_lv2,
+	o.order_id,
+	YEAR(ngay_mua_hang) AS nam,
+	o.customer_id
+FROM o
+WHERE YEAR(ngay_mua_hang) = '2021'
+),
+moi AS
+(SELECT
+	o.store_id,
+	o.store,
+	o.department_lv2,
+	o.order_id,
+	YEAR(ngay_mua_hang) AS nam,
+	o.customer_id
+FROM o
+WHERE YEAR(ngay_mua_hang) = '2022'
+),
+
+loai_kh AS
+(SELECT
+	moi.*,
+	CASE WHEN cu.store_id = moi.store_id AND moi.customer_id = cu.customer_id THEN 'KH cu' ELSE 'KH moi' END AS loai_kh
+FROM moi 
+LEFT JOIN cu ON cu.customer_id = moi.customer_id
+),
+
+total AS
+(SELECT
+	o.department_lv2,
+	o.store_id,
+	o.store,
+	count(DISTINCT o.customer_id) AS slkh
+FROM o
+GROUP BY
+	1, 2, 3
+),
+
+slkh_2021 AS
+(SELECT
+	cu.department_lv2,
+	cu.store_id,
+	cu.store,
+	count(DISTINCT cu.customer_id) AS slkh_2021
+FROM cu
+GROUP BY 1, 2, 3
+),
+
+slkh_cu AS
+(SELECT
+	loai_kh.department_lv2,
+	loai_kh.store_id,
+	loai_kh.store,
+	count(DISTINCT loai_kh.customer_id) AS slkh_cu
+FROM loai_kh
+WHERE loai_kh.loai_kh = 'KH cu'
+GROUP BY 1, 2, 3
+),
+
+slkh_moi AS
+(SELECT
+	loai_kh.department_lv2,
+	loai_kh.store_id,
+	loai_kh.store,
+	count(DISTINCT loai_kh.customer_id) AS slkh_moi
+FROM loai_kh
+WHERE loai_kh.loai_kh = 'KH moi'
+GROUP BY 1, 2, 3
+)
+
+SELECT
+t.department_lv2,
+t.store_id,
+t.store,
+t.slkh,
+a.slkh_2021,
+b.slkh_cu,
+c.slkh_moi
+FROM total t
+LEFT JOIN slkh_2021 a ON a.store_id = t.store_id 
+LEFT JOIN slkh_cu b ON b.store_id = t.store_id 
+LEFT JOIN slkh_moi c ON c.store_id = t.store_id 
