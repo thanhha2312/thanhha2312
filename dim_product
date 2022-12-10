@@ -1,0 +1,102 @@
+WITH c1 AS
+(SELECT
+	c.id,
+	c.name,
+	c.parent_id
+FROM prod_product_service.category c
+),
+
+c2 AS
+(SELECT
+c2.id,
+c2.NAME
+FROM prod_product_service.category c2
+),
+
+c3 AS
+(SELECT
+c2.id AS parent_cat_id,
+c2.name AS parent_cat,
+c1.id AS cat_id,
+c1.NAME AS cat
+FROM c1 
+LEFT JOIN c2 ON c1.parent_id = c2.id
+ORDER BY c2.id
+),
+
+c4 AS 
+(SELECT
+	s.sku3,
+	s.group 
+FROM prod_product_service.sku3_maps s
+),
+
+c5 AS
+(
+SELECT 
+cl.*,
+t.name AS collection_name
+FROM 
+(SELECT
+	p.id,
+	p.CODE,
+	p.name,
+	SUBSTRING(p.collections,3, 8) AS collection
+FROM prod_product_service.product p
+WHERE p.collections LIKE '%&&%'
+UNION ALL 
+SELECT
+	p.id,
+	p.CODE,
+	p.name,
+	p.collections AS collection
+FROM prod_product_service.product p
+WHERE p.collections NOT LIKE '%&&%') cl
+LEFT JOIN prod_product_service.collections t ON t.CODE = cl.collection
+)
+
+SELECT
+a.id AS variant_id,
+a.sku,
+a.`name`,
+c3.parent_cat_id,
+c3.parent_cat,
+LEFT(a.sku,3) AS parent_cat_code_2,
+c4.group AS parent_cat_2,
+c3.cat_id,
+c3.cat,
+b.code AS product_group_code,
+b.id AS product_group_id,
+b.`name` AS product_name,
+a.is_deleted,
+b.material,
+b.material_id,
+a.weight,
+a.weight_unit,
+a.size,
+a.size_id,
+a.color,
+a.color_id,
+a.color_code,
+c5.collection,
+c5.collection_name,
+a.supplier,
+a.supplier_ids,
+b.made_in,
+b.made_in_id,
+b.unit,
+c.retail_price,
+c.cost_price,
+c.import_price,
+a.status,
+a.barcode,
+c.currency 
+FROM
+	prod_product_service.variant a
+LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+LEFT JOIN prod_product_service.variant_price c ON c.id = a.id 
+LEFT JOIN c4 ON c4.sku3 = LEFT(a.sku,3)
+LEFT JOIN c3 ON b.category_id = c3.cat_id
+LEFT JOIN c5 ON c5.id = b.id
+WHERE
+	a.sku = 'APN3700-TNA-L'
