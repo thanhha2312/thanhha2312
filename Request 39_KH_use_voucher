@@ -1,0 +1,73 @@
+WITH cp AS
+(SELECT
+		pr.id,
+		pr.title,
+    dc.code,
+		CAST(DATE_ADD(duc.created_date,INTERVAL 7 HOUR) as date) AS created_date,
+    duc.order_id,
+    duc.customer_id,
+    dc.use_status
+FROM prod_promotion_service.price_rule pr
+JOIN prod_promotion_service.discount_code dc on dc.price_rule_id = pr.id
+LEFT JOIN prod_promotion_service.discount_usage_count duc on duc.discount_code = dc.code
+WHERE dc.use_status = 'Unavailable'
+),
+
+ord AS 
+(SELECT
+	o.id,
+	o.customer_id,
+	o.note,
+	o.total,
+	o.total_quantities,
+	o.total_discount,
+	CAST(DATE_ADD(o.finished_on,INTERVAL 7 HOUR) as date) AS finished_on
+FROM prod_order_service.orders o 
+WHERE CAST(DATE_ADD(o.finished_on,INTERVAL 7 HOUR) as date) BETWEEN '2022-12-01' AND '2022-12-14'
+AND o.total < 1000000
+AND o.total_discount IS NOT NULL 
+),
+
+t1 AS
+(SELECT
+	ord.*,
+	cp.code,
+	cp.title
+FROM ord
+LEFT JOIN cp ON cp.order_id = ord.id
+WHERE cp.code IS NOT NULL
+),
+
+cust AS 
+(SELECT
+	 c.id,
+	 c.phone,
+	 c.full_name,
+	 c.customer_level_name,
+	 CAST(DATE_ADD(c.birthday,INTERVAL 7 HOUR) as date) AS birthday,
+	 r.total_paid_amount,
+	 r.total_finished_order,
+	 r.last_order_type,
+	 CASE 
+	WHEN r.last_order_type = 'online' THEN r.source_of_last_order_online
+	WHEN r.last_order_type = 'offline' THEN r.store_of_last_order_offline
+	ELSE  NULL END AS last_shop_name,
+	r.first_order_type,
+	CASE 
+	WHEN r.first_order_type = 'online' THEN r.source_of_first_order_online
+	WHEN r.first_order_type = 'offline' THEN r.store_of_first_order_offline
+	ELSE  NULL END AS first_shop_name
+FROM prod_customer_service.customer c
+LEFT JOIN prod_customer_service.reports r ON r.user_id = c.id
+)
+
+SELECT DISTINCT
+	t1.customer_id,
+	t1.code AS voucher_code,
+	t1.total,
+	t1.total_discount,
+	t1.title AS campaign,
+	cust.*
+FROM t1
+LEFT JOIN cust ON cust.id = t1.customer_id
+ORDER BY t1.customer_id
