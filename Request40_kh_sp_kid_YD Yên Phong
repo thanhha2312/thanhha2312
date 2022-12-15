@@ -1,0 +1,73 @@
+WITH ord AS
+(SELECT DISTINCT
+t1.customer_id,
+t1.customer_phone_number,
+max(t1.created_date) AS created_date,
+max(t1.prod_code) AS prod_code,
+max(t1.sku) AS sku
+FROM
+(SELECT
+	a.id,
+	a.order_id,
+	CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) AS created_date,
+	a.sku,
+	a.variant AS sku_name,
+	a.product_id,
+	a.product_code,
+	LEFT(a.product_code,3) AS prod_code,
+	b.category,
+	c.customer_id,
+	c.customer_phone_number
+FROM prod_order_service.order_line a
+LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+LEFT JOIN prod_order_service.orders c ON c.id = a.order_id
+WHERE
+		CAST( DATE_ADD( a.created_date, INTERVAL 7 HOUR ) AS date ) < '2022-12-13'
+		AND a.is_deleted = 0
+		AND LEFT(a.product_code,3) IN ('VAK', 'BDK', 'SMK', 'QNK','QMK', 'QJK', 'TSK','SNK', 'QSK', 'CVK','BTK', 'SDK', 'ACK','HDK','VTK')
+) t1
+GROUP BY t1.customer_id, t1.customer_phone_number
+),
+
+cust AS
+(SELECT  * 
+FROM 
+(SELECT
+	e.id,
+	e.full_name,
+	e.customer_level_name,
+	e.gender,
+	e.phone,
+	e.city,
+	e.district,
+	e.full_address,
+	f.last_order_type,
+	f.store_id_of_last_order_offline,
+	f.store_of_last_order_offline AS last_store_name,
+		CAST( DATE_ADD( f.last_order_time, INTERVAL 7 HOUR ) AS date ) AS last_order_date,
+	f.total_paid_amount
+FROM prod_customer_service.customer e
+LEFT JOIN prod_customer_service.reports f ON e.id = f.user_id
+) tab1
+WHERE tab1.store_id_of_last_order_offline = 164 -- YODY Yên Phong
+AND tab1.total_paid_amount >1
+)
+
+SELECT DISTINCT 
+	ord.customer_id,
+	ord.customer_phone_number,
+	cust.customer_level_name,
+	cust.full_name,
+	cust.gender,
+	cust.city,
+	cust.district,
+	cust.full_address,
+	cust.last_order_type,
+	ord.prod_code,
+	ord.sku,
+	cust.total_paid_amount,
+	cust.last_order_date,
+	cust.last_store_name
+FROM cust
+LEFT JOIN ord ON cust.id = ord.customer_id
+WHERE ord.prod_code IS NOT NULL
