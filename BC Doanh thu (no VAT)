@@ -44,7 +44,7 @@ SELECT
 	o.discount_code AS ord_discount_code,-- o.taxable AS ord_taxable,
 	o.`value` AS ord_discount_amount,
 	o.rate AS ord_discount_rate,-- l.distributedOrderDiscount AS ord_total_discount_distributed,
--- l.taxable,
+	l.tax_included AS taxable,
 -- l.total_tax_line,
 	l.tax_rate,
 	l.tax_type_id 
@@ -53,4 +53,15 @@ FROM
 	LEFT JOIN prod_order_service.discount_item i ON i.order_line_id = l.id
 	LEFT JOIN prod_order_service.order_discount o ON o.order_id = l.order_id 
 WHERE
-	l.order_id = '25526269'
+	l.order_id IN (
+		'25526269',
+		'24488865',
+		'24676684',
+		'24747076',
+		'24757322',
+		'24768683',
+		'24770979',
+		'24774263',
+		'24778055',
+		'24784803',
+		'24790706')
