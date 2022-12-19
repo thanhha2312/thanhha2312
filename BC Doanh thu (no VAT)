@@ -1,0 +1,56 @@
+SELECT
+	l.id AS order_line_id,
+	l.variant_id,
+	l.variant AS variant_name,
+	l.variant_barcode,
+	l.sku,
+	l.product_id,
+	l.product AS product_name,
+	l.product_code,
+	l.weight,
+	l.weight_unit,
+	l.unit,
+	l.price AS retail_price,
+	l.price / 1.1 AS retail_price_no_vat,
+	l.quantity,
+	l.amount,
+	l.quantity *(
+		l.price / 1.1 
+	) AS amount_no_vat,-- i.taxable AS product_taxable,
+	i.promotion_id AS prod_promotion_id,
+	i.promotion_title AS prod_promotion_title,
+	l.discount_value AS prod_discount_amount,
+	l.discount_rate AS prod_discount_rate,
+/*CASE 
+	WHEN i.taxable = 'T' THEN i.discount_rate*(l.quantity*(l.price/1.1))
+	WHEN i.taxable = 'F' THEN i.discount_rate*l.amount
+	ELSE NULL
+	END AS prod_discount_rate_value,
+	CASE 
+	WHEN i.taxable = 'T' THEN i.discount_value/1.1 + i.discount_rate*(l.quantity*(l.price/1.1))
+	WHEN i.taxable = 'F' THEN i.discount_value + i.discount_rate*l.amount
+	ELSE NULL 
+	END AS prod_total_discount, */
+	l.order_id,
+	l.created_by,
+	l.created_date,
+	l.created_name,
+	l.updated_by,
+	l.updated_date,
+	l.updated_name,
+	l.order_return_id,
+	o.promotion_id AS ord_promotion_id,
+	o.promotion_title AS ord_promotion_title,
+	o.discount_code AS ord_discount_code,-- o.taxable AS ord_taxable,
+	o.`value` AS ord_discount_amount,
+	o.rate AS ord_discount_rate,-- l.distributedOrderDiscount AS ord_total_discount_distributed,
+-- l.taxable,
+-- l.total_tax_line,
+	l.tax_rate,
+	l.tax_type_id 
+FROM
+	prod_order_service.order_line l
+	LEFT JOIN prod_order_service.discount_item i ON i.order_line_id = l.id
+	LEFT JOIN prod_order_service.order_discount o ON o.order_id = l.order_id 
+WHERE
+	l.order_id = '25526269'
