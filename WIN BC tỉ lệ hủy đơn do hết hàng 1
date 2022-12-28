@@ -1,0 +1,83 @@
+WITH t1 AS (
+	SELECT
+		l.id AS order_log_id,
+		l.created_by,
+		l.created_name,
+		CAST( DATE_ADD( l.created_date, INTERVAL 7 HOUR ) AS date ) AS created_date,
+		l.root_id AS order_id,
+		l.store,
+		s.id AS store_id,
+		l.status_before,
+		l.status_after 
+	FROM
+		prod_order_service.order_log l
+		LEFT JOIN prod_core_service.store s ON s.NAME = l.store 
+	WHERE
+		(
+			CAST( DATE_ADD( l.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-08-01' 
+			AND l.is_deleted = 0 
+			AND l.status_before = 'Hết hàng' 
+		AND s.id IN ( 255, 23 )) 
+		OR (
+			CAST( DATE_ADD( l.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-08-01' 
+			AND l.is_deleted = 0 
+			AND l.status_after = 'Hết hàng' 
+		AND s.id IN ( 255, 23 )) 
+	),
+	pm AS (
+	SELECT
+		p.order_id,
+		sum( p.amount ) AS amount 
+	FROM
+		prod_order_service.payment p 
+	WHERE
+		p.payment_method_code = 'point' 
+	GROUP BY
+		p.order_id 
+	),
+	t2 AS (
+	SELECT
+		o.store_id,
+		o.store,
+		o.customer_id,
+		o.id AS order_id,
+		o.STATUS,
+		t1.order_id AS order_cancel_id,
+	CASE
+			
+			WHEN o.id = t1.order_id THEN
+			'out_of_stock' ELSE 'others' 
+		END AS order_type,
+		CAST( DATE_ADD( o.created_date, INTERVAL 7 HOUR ) AS date ) AS created_date,
+		o.total,
+		o.total_discount,
+		o.total_quantities,
+		pm.amount AS point_payment 
+	FROM
+		prod_order_service.orders o
+		LEFT JOIN pm ON pm.order_id = o.id
+		LEFT JOIN t1 ON t1.order_id = o.id 
+	WHERE
+		o.store_id IN ( 255, 23 ) 
+		AND CAST( DATE_ADD( o.created_date, INTERVAL 7 HOUR ) AS date ) >= '2022-08-01' 
+		AND o.is_deleted = 0 
+		AND o.return_status = 'unreturned' 
+	) SELECT
+	t2.created_date,
+	t2.store_id,
+	t2.store,
+	sum( CASE WHEN t2.order_type = 'out_of_stock' AND t2.STATUS = 'cancelled' THEN 1 ELSE 0 END ) AS sldh_huy,
+	sum( CASE WHEN t2.order_type = 'others' AND t2.STATUS = 'finished' THEN 1 ELSE 0 END ) AS sldh_tc,
+	sum( CASE WHEN t2.order_type = 'out_of_stock' AND t2.STATUS = 'cancelled' THEN t2.total - t2.point_payment ELSE 0 END ) AS dt_huy,
+	sum( CASE WHEN t2.order_type = 'others' AND t2.STATUS = 'finished' THEN t2.total - t2.point_payment ELSE 0 END ) AS dt_tc,
+	sum( CASE WHEN t2.order_type = 'out_of_stock' AND t2.STATUS = 'cancelled' THEN t2.total_quantities ELSE 0 END ) AS slsp_huy,
+	sum( CASE WHEN t2.order_type = 'others' AND t2.STATUS = 'finished' THEN t2.total_quantities ELSE 0 END ) AS slsp_tc 
+FROM
+	t2 
+GROUP BY
+	1,
+	2,
+	3 
+ORDER BY
+	1,
+	2
