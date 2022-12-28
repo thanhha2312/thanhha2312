@@ -1,0 +1,110 @@
+WITH
+t1 AS
+(SELECT
+	l.id AS order_log_id,
+	l.created_by,
+	l.created_name,
+	CAST(DATE_ADD(l.created_date,INTERVAL 7 HOUR) as date) AS created_date,
+	l.root_id AS order_id,
+	l.store,
+	s.id AS store_id,
+	l.status_before,
+	l.status_after
+FROM prod_order_service.order_log l 
+LEFT JOIN prod_core_service.store s ON s.name = l.store 
+WHERE 
+(CAST(DATE_ADD(l.created_date,INTERVAL 7 HOUR) as date) >= '2022-08-01'
+AND l.is_deleted = 0
+AND l.status_before = 'Hết hàng'
+AND s.id IN (255,23))
+OR 
+(CAST(DATE_ADD(l.created_date,INTERVAL 7 HOUR) as date) >= '2022-08-01'
+AND l.is_deleted = 0
+AND l.status_after = 'Hết hàng'
+AND s.id IN (255,23))
+),
+
+pm AS
+(SELECT
+	p.order_id,
+	sum(p.amount) AS amount
+FROM prod_order_service.payment p
+WHERE p.payment_method_code = 'point'
+GROUP BY p.order_id
+),
+
+t2 AS
+(SELECT
+	o.store_id,
+	o.store,
+	o.customer_id,
+	o.id AS order_id,
+	o.status,
+	t1.order_id as order_cancel_id,
+	CASE
+	WHEN o.id = t1.order_id THEN 'out_of_stock'
+	ELSE 'others' END as order_type,
+	CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) as date) AS created_date,
+	o.total,
+	o.total_discount,
+	o.total_quantities,
+	pm.amount AS point_payment
+FROM
+prod_order_service.orders o 
+LEFT JOIN pm ON pm.order_id = o.id
+LEFT JOIN t1 ON t1.order_id = o.id
+WHERE
+o.store_id IN (255,23)
+AND CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) as date) >= '2022-08-01'
+AND o.is_deleted = 0 
+AND o.return_status = 'unreturned'
+),
+
+t3 AS 
+(SELECT
+	t2.created_date,
+	t2.store_id,
+	t2.store,
+	t2.order_id,
+	t2.order_type,
+	t2.status,
+	l.sku,
+	l.quantity	
+FROM t2 
+LEFT JOIN prod_order_service.order_line l ON l.order_id = t2.order_id
+WHERE l.price > 0 AND l.sku IN ('APM3635-GRE-M','APN3700-TNA-M')
+),
+
+t4 AS
+(SELECT
+	t3.created_date,
+	t3.store_id,
+	t3.store,
+	t3.sku,
+	sum(CASE WHEN t3.order_type = 'out_of_stock' AND t3.status = 'cancelled' THEN t3.quantity ELSE 0 END) AS slsp_huy,
+	sum(CASE WHEN t3.order_type = 'others' AND t3.status = 'finished' THEN t3.quantity ELSE 0 END) AS slsp_tc
+FROM t3
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 2
+),
+
+t5 AS 
+(SELECT
+	CAST(DATE_ADD(inv.transaction_date,INTERVAL 7 HOUR) as date) AS transaction_date,
+	inv.store_id,
+	inv.sku,
+	inv.on_hand,
+	inv.available
+FROM prod_inventory_service.inventories inv 
+WHERE CAST(DATE_ADD(inv.transaction_date,INTERVAL 7 HOUR) as date) > '2022-08-01'
+AND inv.is_deleted = 0
+AND inv.store_id IN (255, 23)
+AND inv.sku IN ('APM3635-GRE-M', 'APN3700-TNA-M')
+)
+
+SELECT
+	t4.*,
+	t5.on_hand,
+	t5.available
+FROM t4
+LEFT JOIN t5 ON t5.transaction_date = t4.created_date AND t4.store_id = t5.store_id AND t4.sku = t5.sku
