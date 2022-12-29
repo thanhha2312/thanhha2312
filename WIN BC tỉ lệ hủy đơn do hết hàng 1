@@ -1,3 +1,4 @@
+-- t1: lấy đơn hủy do hết hàng 
 WITH t1 AS (
 	SELECT
 		l.id AS order_log_id,
@@ -24,6 +25,7 @@ WITH t1 AS (
 			AND l.status_after = 'Hết hàng' 
 		AND s.id IN ( 255, 23 )) 
 	),
+	-- pm: lấy tiêu điểm của đơn hàng
 	pm AS (
 	SELECT
 		p.order_id,
@@ -35,6 +37,7 @@ WITH t1 AS (
 	GROUP BY
 		p.order_id 
 	),
+	-- t2: lấy tất cả đơn hàng không return
 	t2 AS (
 	SELECT
 		o.store_id,
