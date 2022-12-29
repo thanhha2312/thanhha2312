@@ -1,5 +1,5 @@
 WITH
-t1 AS
+t1 AS -- t1: lấy đơn hàng hủy do hết hàng
 (SELECT
 	l.id AS order_log_id,
 	l.created_by,
@@ -23,7 +23,7 @@ AND l.is_deleted = 0
 AND l.status_after = 'Hết hàng'
 AND s.id IN (255,23))
 ),
-
+-- lấy thông tin tiêu điểm của đơn hàng
 pm AS
 (SELECT
 	p.order_id,
@@ -32,7 +32,7 @@ FROM prod_order_service.payment p
 WHERE p.payment_method_code = 'point'
 GROUP BY p.order_id
 ),
-
+-- lấy thông tin tất cả đơn hàng không bao gồm đơn trả
 t2 AS
 (SELECT
 	o.store_id,
@@ -59,7 +59,7 @@ AND CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) as date) >= '2022-08-01'
 AND o.is_deleted = 0 
 AND o.return_status = 'unreturned'
 ),
-
+-- sản phẩm ứng với đơn hàng
 t3 AS 
 (SELECT
 	t2.created_date,
@@ -74,7 +74,7 @@ FROM t2
 LEFT JOIN prod_order_service.order_line l ON l.order_id = t2.order_id
 WHERE l.price > 0 AND l.sku IN ('APM3635-GRE-M','APN3700-TNA-M')
 ),
-
+-- tổng hợp thông tin theo sku
 t4 AS
 (SELECT
 	t3.created_date,
@@ -87,7 +87,7 @@ FROM t3
 GROUP BY 1, 2, 3, 4
 ORDER BY 1, 2
 ),
-
+-- tồn kho theo cửa hàng và sản phẩm
 t5 AS 
 (SELECT
 	CAST(DATE_ADD(inv.transaction_date,INTERVAL 7 HOUR) as date) AS transaction_date,
