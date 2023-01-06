@@ -1,0 +1,41 @@
+WITH t1 AS
+(SELECT
+	o.customer_id
+FROM prod_order_service.orders o 
+LEFT JOIN prod_core_service.source s ON s.id = o.source_id
+LEFT JOIN prod_account_service.department d ON d.id = s.department_id
+WHERE 
+	CAST(DATE_ADD(o.finished_on,INTERVAL 7 HOUR) as date) >= '2023-01-01'
+	AND o.channel != 'POS'
+	AND o.`status` = 'finished'
+	AND o.return_status = 'unreturned'
+	AND o.is_deleted = 0
+	AND d.department_lv2 IN ('CN THE SUN', 'CN SUNSHINE')
+),
+	
+	cust AS
+(SELECT
+	c.id,
+	c.phone AS 1_sdt,
+	c.full_name,
+	c.gender AS 2_gioi_tinh,
+	c.customer_group_name AS 11_nhom_kh,
+	c.customer_type_name,
+	c.customer_level_name AS 10_level,
+	c.city AS 8_tinh_thanh,
+	CAST( DATE_ADD( c.wedding_date, INTERVAL 7 HOUR ) AS date ) AS 4_ngay_cuoi,
+	cast(date_add(c.birthday, interval 7 hour) as date) as 3_ngay_sinh,
+	CAST( DATE_ADD( r.last_order_time_online, INTERVAL 7 HOUR ) AS date ) AS 5_ngay_mua_cuoi,
+	l.point as 7_diem_tich_luy,
+	r.source_of_last_order_online AS 9_nguon_mua_cuoi,
+	r.total_paid_amount AS 12_dt
+FROM prod_customer_service.customer c 
+join prod_customer_service.reports r on c.id = r.user_id and r.last_order_type = 'online'
+join prod_loyalty_service.customer_loyalties l on c.id = l.customer_id
+)
+
+SELECT
+t1.customer_id AS ma_kh,
+cust.*
+FROM t1 
+LEFT JOIN cust ON t1.customer_id = cust.id
