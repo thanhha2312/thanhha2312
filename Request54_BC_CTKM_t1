@@ -1,0 +1,74 @@
+WITH t1 AS	
+(SELECT
+	o.id AS order_id,
+	o.customer_id,
+	CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) as date) AS created_date,
+	o.channel,
+	CASE WHEN o.channel = 'POS' THEN 'offline' ELSE 'online' END AS channel_type,
+	o.note,
+	o.source,
+	o.store AS delivery_store,
+	o.total,
+	o.total_discount
+FROM  prod_order_service.orders o 
+WHERE CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-04'
+	AND o.`status` = 'finished'
+	AND o.return_status = 'unreturned'
+	AND o.is_deleted = 0
+),
+
+c AS
+(SELECT
+		pr.id,
+		pr.title,
+    dc.code,
+    duc.order_id,
+    duc.customer_id,
+    dc.use_status
+FROM prod_promotion_service.price_rule pr
+JOIN prod_promotion_service.discount_code dc on dc.price_rule_id = pr.id
+LEFT JOIN prod_promotion_service.discount_usage_count duc on duc.discount_code = dc.code
+WHERE dc.use_status = 'Unavailable' AND CAST(DATE_ADD(duc.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-04'
+),
+
+pm AS
+(SELECT
+	p.order_id,
+	sum(p.amount) AS amount
+FROM prod_order_service.payment p
+WHERE p.payment_method_code = 'point' AND CAST(DATE_ADD(p.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-04'
+GROUP BY p.order_id
+)
+
+
+SELECT
+	t1.created_date AS 1_ngay_mua,
+	t1.order_id AS 2_ma_don_hang,
+	t1.customer_id AS 3_ma_khach_hang,
+	l.product AS 4_ten_san_pham,
+	l.product_code AS 5_ma_7kt,
+	l.price,
+	l.quantity,
+	p.category AS 6_category,
+	t1.note AS 7_note_ck_dh,
+	c.code AS 7_ma_ck_dh,
+	i.promotion_id AS 8_id_ctkm_ck_sp,
+	i.promotion_title,
+	i.reason AS 8_note_ck_sp,
+	l.distributed_order_discount AS 9_ck_dh_phan_bo,
+	l.discount_amount AS 10_ck_sp,
+	l.discount_rate AS 11_phan_tram_ck_sp,
+	l.amount AS 12_tong_ban,
+	-- l.line_amount_after_line_discount AS 13_doanh_thu_sau_ck_sp,
+	-- pm.amount AS 14_gia_tri_tieu_diem_dh,
+	-- l.total_tax_line AS 15_gia_tri_thue,
+	l.discount_amount + l.distributed_order_discount AS 16_tong_ck,
+	l.line_amount_after_line_discount - l.distributed_order_discount AS 17_doanh_thu_sau_ck
+FROM t1
+LEFT JOIN prod_order_service.order_line l ON l.order_id = t1.order_id 
+LEFT JOIN prod_product_service.product p ON p.id = l.product_id
+LEFT JOIN prod_order_service.discount_item i ON i.order_line_id = l.id
+LEFT JOIN c ON c.order_id = t1.order_id 
+LEFT JOIN pm ON pm.order_id = t1.order_id
+WHERE (l.price > 0 AND l.distributed_order_discount > 0) OR 
+			(l.price > 0 AND l.discount_amount > 0)
