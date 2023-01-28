@@ -1,0 +1,154 @@
+with 
+ ord AS
+(SELECT DISTINCT
+	o.customer_id,
+	SUM(CASE WHEN o.total = 0 THEN 1 ELSE 0 END) AS sldh_0d
+FROM prod_order_service.orders o 
+WHERE 
+cast(date_add(o.finished_on, interval 7 hour) as date) BETWEEN '2022-06-01' AND '2023-01-18'
+AND o.is_deleted = 0
+AND o.return_status = 'unreturned'
+AND o.channel = 'POS'
+AND o.store_code IN ('YDVNQNI09',
+'YDVNBDH10',
+'YDVNTHA26',
+'YDVNTHA27',
+'YDVNTHA29',
+'YDVNDNG13',
+'YDVNQNI06',
+'YDVNDLK13',
+'YDVNDLK12',
+'YDVNDLK11',
+'YDVNTHA24',
+'YDVNBDH08',
+'YDVNHTH11',
+'YDVNHTH10',
+'YDVNHTH09',
+'YDVNTHA28',
+'YDVNDLK09',
+'YDVNQNM15',
+'YDVNBDH07',
+'YDVNQTI10',
+'YDVNQBH10',
+'YDVNQTI05',
+'YDVNQNM17',
+'YDVNDLK10',
+'YDVNTHA23',
+'YDVNQNM16',
+'YDVNQBH09',
+'YDVNKHA02',
+'YDVNQBH08',
+'YDVNGLI03',
+'YDVNNAN03',
+'YDVNNAN04',
+'YDVNPYN01',
+'YDVNKTM01',
+'YDVNBDH06',
+'YDVNDLK15',
+'YDVNDNG22',
+'YDVNQNM24',
+'YDVNQTI09',
+'YDVNQNM21',
+'YDVNQBH13',
+'YDVNQNI05',
+'YDVNDNG16',
+'YDVNQNM13',
+'YDVNQNM25',
+'YDVNDNG15',
+'YDVNHTH08',
+'YDVNQBH14',
+'YDVNGLI02',
+'YDVNQNI04',
+'YDVNHTH13',
+'YDVNGLI01',
+'YDVNDNG26',
+'YDVNBDH05',
+'YDVNTHA30',
+'YDVNTHA15',
+'YDVNTHA13',
+'YDVNQBH07',
+'YDVNQNM23',
+'YDVNNAN01',
+'YDVNTHA34',
+'YDVNTHA20',
+'YDVNTHA19',
+'YDVNTHA17',
+'YDVNLDG01',
+'YDVNTHA25',
+'YDVNLDG04',
+'YDVNDKN01',
+'YDVNHUE02',
+'YDVNTHA33',
+'YDVNDNG29',
+'YDVNLDG03',
+'YDVNBTN01',
+'YDVNQNM26',
+'YDVNQNM27',
+'YDVNKHA04',
+'YDVNKHA05',
+'YDVNHUE04',
+'YDVNBTN02',
+'YDVNLDG05',
+'YDVNDNG31'
+)
+GROUP BY o.customer_id
+),
+
+cust as 
+(
+select 
+			c.id AS id_kh
+		, c.code                                              as ma_khach_hang
+     , c.phone                                             as sdt
+     , c.full_name                                         as ten
+		 , c.gender                                         as gender
+		 , c.customer_group_name                                         as customer_group_name
+		 , c.full_address                                         as full_address
+		 
+     , cast(date_add(c.birthday, interval 7 hour) as date) as ngay_sinh
+     , c.city
+#     , l.total_money_spend as tien_tich_luy
+     , l.point as diem_tich_luy
+		 , r.total_finished_order AS so_lan_mua
+     , l.loyalty_level as hang_khach_hang
+		 , c.customer_type_name as nhom_kh
+		 , TIMESTAMPDIFF(DAY,r.last_order_time,NOW()) AS so_ngay_chua_mua_hang
+#		 , l.point as diem_tich_luy
+		, r.total_paid_amount AS tong_tien
+		, cast(date_add(r.first_order_time, interval 7 hour) as date) as ngay_mua_dau
+		, cast(date_add(r.last_order_time, interval 7 hour) as date) as ngay_mua_cuoi
+		, CASE 
+			WHEN r.first_order_type = 'online' THEN r.source_of_first_order_online
+			WHEN r.first_order_type = 'offline' THEN r.store_of_first_order_offline
+			ELSE NULL END AS cua_hang_mua_dau 
+		, CASE 
+			WHEN r.last_order_type = 'online' THEN r.source_of_last_order_online
+			WHEN r.last_order_type = 'offline' THEN r.store_of_last_order_offline
+			ELSE NULL END AS cua_hang_mua_cuoi
+		, r.average_order_value AS TBGT_don
+		, c.city AS thanh_pho 
+		, c.district AS quan_huyen
+		, r.last_order_type AS last_order_type
+#   , o.assignee                                          as nhan_vien_ban_hang
+     , row_number() over (partition by o.customer_id)      as rn
+from prod_customer_service.customer c
+         join prod_customer_service.reports r on c.id = r.user_id and r.last_order_type = 'online'
+         join prod_loyalty_service.customer_loyalties l on c.id = l.customer_id
+         left join prod_core_service.source s on s.id = r.source_id_of_last_order_online
+         left join prod_account_service.department d on d.id = s.department_id
+         left join prod_order_service.orders o on o.finished_on = r.last_order_time_online and o.customer_id = r.user_id
+where 1 = 1
+#  and r.last_order_type = 'online'
+	and cast(date_add(r.last_order_time, interval 7 hour) as date) BETWEEN '2022-06-01' AND '2023-01-18'
+#  and d.department_lv2 = 'CN THE LIGHT'
+#  and MONTH(date_add(c.birthday, interval 7 hour)) = 1
+)
+
+SELECT
+	ord.*,
+	cust.*
+FROM ord LEFT JOIN cust ON cust.id_kh = ord.customer_id
+WHERE  cust.rn = 1
+#and LOWER(nguon_mua_cuoi) LIKE '%stella%'
+#   and cast(date_add(last_order_time, INTERVAL 7 HOUR) as date) between '2022-01-01' and '2022-12-31'
+#     and datediff(curdate(), r.last_order_time) between 30 and 90
