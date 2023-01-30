@@ -1,0 +1,245 @@
+#1
+select c.full_name AS 1_ho_ten,
+       cast(date_add(c.birthday, interval 7 hour) as date) as 3_birthday,
+			 cast(date_add(c.wedding_date, interval 7 hour) as date) as 4_wedding_date,
+       c.phone AS 2_sđt,
+       c.customer_group_name as 10_nhom_kh ,
+       r.source_of_last_order_online AS 8_nguon_mua_cuoi,
+       cast(date_add(last_order_time_online, interval 7 hour) as date) 5_ngaymuacuoi,
+       datediff(curdate(), last_order_time_online)         as          6_songaychuamua,
+			 l.point AS 7_diem_tich_luy,
+			 l.loyalty_level AS 9_level,
+			 r.total_paid_amount AS 10_doanh_thu
+from prod_customer_service.reports r
+				join prod_loyalty_service.customer_loyalties l ON l.customer_id = r.user_id
+        join prod_customer_service.customer c on c.id = r.user_id 
+#     and month(date_add(c.birthday, interval 7 hour ))=2
+    and r.last_order_type = 'online'
+    and datediff(curdate(), last_order_time_online) between 15 and 60;
+
+#2
+select c.full_name AS 1_ho_ten,
+       cast(date_add(c.birthday, interval 7 hour) as date) as 3_birthday,
+			 cast(date_add(c.wedding_date, interval 7 hour) as date) as 4_wedding_date,
+       c.phone AS 2_sđt,
+       c.customer_group_name as 10_nhom_kh ,
+       r.source_of_last_order_online AS 8_nguon_mua_cuoi,
+       cast(date_add(last_order_time_online, interval 7 hour) as date) 5_ngaymuacuoi,
+       datediff(curdate(), last_order_time_online)         as          6_songaychuamua,
+			 l.point AS 7_diem_tich_luy,
+			 l.loyalty_level AS 9_level,
+			 r.total_paid_amount AS 10_doanh_thu
+from prod_customer_service.reports r
+         join prod_customer_service.customer c on c.id = r.user_id
+				 join prod_loyalty_service.customer_loyalties l ON l.customer_id = r.user_id
+#     and month(date_add(c.birthday, interval 7 hour ))=2
+    and r.last_order_type = 'online'
+		and r.source_of_last_order_online NOT LIKE '%zalo%'
+		and r.source_of_first_order_online NOT LIKE '%zalo%';
+		
+#3
+select c.full_name AS 1_ho_ten,
+       cast(date_add(c.birthday, interval 7 hour) as date) as 3_birthday,
+			 cast(date_add(c.wedding_date, interval 7 hour) as date) as 4_wedding_date,
+       c.phone AS 2_sđt,
+       c.customer_group_name as 10_nhom_kh ,
+       r.source_of_last_order_online AS 8_nguon_mua_cuoi,
+       cast(date_add(last_order_time_online, interval 7 hour) as date) 5_ngaymuacuoi,
+       datediff(curdate(), last_order_time_online)         as          6_songaychuamua,
+			 l.point AS 7_diem_tich_luy,
+			 l.loyalty_level AS 9_level,
+			 r.total_paid_amount AS 10_doanh_thu
+from prod_customer_service.reports r
+				join prod_loyalty_service.customer_loyalties l ON l.customer_id = r.user_id
+        join prod_customer_service.customer c on c.id = r.user_id 
+#     and month(date_add(c.birthday, interval 7 hour ))=2
+    and r.last_order_type = 'online'
+    and datediff(curdate(), last_order_time_online) > 15
+		and l.loyalty_level IS NOT NULL
+		and (r.source_of_last_order_online LIKE '%pluto%' OR r.source_of_last_order_online LIKE '%space%' OR r.source_of_last_order_online LIKE '%the wind%');
+	
+	
+#4
+with t1 as 
+(select 
+				r.user_id AS ma_kh,
+				c.full_name AS 1_ho_ten,
+       cast(date_add(c.birthday, interval 7 hour) as date) as 3_birthday,
+			 cast(date_add(c.wedding_date, interval 7 hour) as date) as 4_wedding_date,
+       c.phone AS 2_sđt,
+       c.customer_group_name as 10_nhom_kh ,
+       r.source_of_last_order_online AS 8_nguon_mua_cuoi,
+       cast(date_add(last_order_time_online, interval 7 hour) as date) 5_ngaymuacuoi,
+       datediff(curdate(), last_order_time_online)         as          6_songaychuamua,
+			 l.point AS 7_diem_tich_luy,
+			 l.loyalty_level AS 9_level,
+			 r.total_paid_amount AS 10_doanh_thu
+from prod_customer_service.reports r
+				join prod_loyalty_service.customer_loyalties l ON l.customer_id = r.user_id
+        join prod_customer_service.customer c on c.id = r.user_id 
+#     and month(date_add(c.birthday, interval 7 hour ))=2
+    and r.last_order_type = 'online'
+    and datediff(curdate(), last_order_time_online) between 15 and 60
+		-- and l.loyalty_level IS NOT NULL
+		and r.source_of_last_order_online LIKE '%moon%'
+),
+
+t2 AS
+(SELECT DISTINCT
+			c.customer_id
+		FROM
+			prod_order_service.order_line a
+			LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+			LEFT JOIN prod_order_service.orders c ON c.id = a.order_id 
+		WHERE 
+			a.is_deleted = 0 
+			AND c.channel != 'POS'
+			AND c.source LIKE '%moon%' 
+			AND c.`status` = 'finished'
+			AND c.return_status = 'unreturned'
+			AND LEFT ( a.product_code, 3 ) NOT IN ( 'PHN', 'PHM') -- , 'AKM', 'AKN', 'QJN', 'QJM', 'BDN', 'BDM')
+)
+
+SELECT
+	t1.*
+FROM t1 
+WHERE t1.ma_kh IN (SELECT t2.customer_id FROM t2);
+
+#5
+with t1 as 
+(select 
+				r.user_id AS ma_kh,
+				c.full_name AS 1_ho_ten,
+       cast(date_add(c.birthday, interval 7 hour) as date) as 3_birthday,
+			 cast(date_add(c.wedding_date, interval 7 hour) as date) as 4_wedding_date,
+       c.phone AS 2_sđt,
+       c.customer_group_name as 10_nhom_kh ,
+       r.source_of_last_order_online AS 8_nguon_mua_cuoi,
+       cast(date_add(last_order_time_online, interval 7 hour) as date) 5_ngaymuacuoi,
+       datediff(curdate(), last_order_time_online)         as          6_songaychuamua,
+			 l.point AS 7_diem_tich_luy,
+			 l.loyalty_level AS 9_level,
+			 r.total_paid_amount AS 10_doanh_thu
+from prod_customer_service.reports r
+				join prod_loyalty_service.customer_loyalties l ON l.customer_id = r.user_id
+        join prod_customer_service.customer c on c.id = r.user_id 
+#     and month(date_add(c.birthday, interval 7 hour ))=2
+    and r.last_order_type = 'online'
+    and datediff(curdate(), last_order_time_online) between 30 and 60
+		-- and l.loyalty_level IS NOT NULL
+		and r.source_of_last_order_online LIKE '%moon%'
+),
+
+t2 AS
+(SELECT DISTINCT
+			c.customer_id
+		FROM
+			prod_order_service.order_line a
+			LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+			LEFT JOIN prod_order_service.orders c ON c.id = a.order_id 
+		WHERE 
+			a.is_deleted = 0 
+			AND c.channel != 'POS'
+			AND c.source LIKE '%moon%' 
+			AND c.`status` = 'finished'
+			AND c.return_status = 'unreturned'
+			AND LEFT ( a.product_code, 3 ) NOT IN ('AKM', 'AKN') -- , 'QJN', 'QJM', 'BDN', 'BDM')
+)
+
+SELECT
+	t1.*
+FROM t1 
+WHERE t1.ma_kh IN (SELECT t2.customer_id FROM t2);
+
+#6
+with t1 as 
+(select 
+				r.user_id AS ma_kh,
+				c.full_name AS 1_ho_ten,
+       cast(date_add(c.birthday, interval 7 hour) as date) as 3_birthday,
+			 cast(date_add(c.wedding_date, interval 7 hour) as date) as 4_wedding_date,
+       c.phone AS 2_sđt,
+       c.customer_group_name as 10_nhom_kh ,
+       r.source_of_last_order_online AS 8_nguon_mua_cuoi,
+       cast(date_add(last_order_time_online, interval 7 hour) as date) 5_ngaymuacuoi,
+       datediff(curdate(), last_order_time_online)         as          6_songaychuamua,
+			 l.point AS 7_diem_tich_luy,
+			 l.loyalty_level AS 9_level,
+			 r.total_paid_amount AS 10_doanh_thu
+from prod_customer_service.reports r
+				join prod_loyalty_service.customer_loyalties l ON l.customer_id = r.user_id
+        join prod_customer_service.customer c on c.id = r.user_id 
+#     and month(date_add(c.birthday, interval 7 hour ))=2
+    and r.last_order_type = 'online'
+    and datediff(curdate(), last_order_time_online) between 15 and 60
+		-- and l.loyalty_level IS NOT NULL
+		and r.source_of_last_order_online LIKE '%moon%'
+),
+
+t2 AS
+(SELECT DISTINCT
+			c.customer_id
+		FROM
+			prod_order_service.order_line a
+			LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+			LEFT JOIN prod_order_service.orders c ON c.id = a.order_id 
+		WHERE 
+			a.is_deleted = 0 
+			AND c.channel != 'POS'
+			AND c.source LIKE '%moon%' 
+			AND c.`status` = 'finished'
+			AND c.return_status = 'unreturned'
+			AND LEFT ( a.product_code, 3 ) NOT IN ('QJN', 'QJM') -- , 'BDN', 'BDM')
+)
+
+SELECT
+	t1.*
+FROM t1 
+WHERE t1.ma_kh IN (SELECT t2.customer_id FROM t2);
+
+#7
+with t1 as 
+(select 
+				r.user_id AS ma_kh,
+				c.full_name AS 1_ho_ten,
+       cast(date_add(c.birthday, interval 7 hour) as date) as 3_birthday,
+			 cast(date_add(c.wedding_date, interval 7 hour) as date) as 4_wedding_date,
+       c.phone AS 2_sđt,
+       c.customer_group_name as 10_nhom_kh ,
+       r.source_of_last_order_online AS 8_nguon_mua_cuoi,
+       cast(date_add(last_order_time_online, interval 7 hour) as date) 5_ngaymuacuoi,
+       datediff(curdate(), last_order_time_online)         as          6_songaychuamua,
+			 l.point AS 7_diem_tich_luy,
+			 l.loyalty_level AS 9_level,
+			 r.total_paid_amount AS 10_doanh_thu
+from prod_customer_service.reports r
+				join prod_loyalty_service.customer_loyalties l ON l.customer_id = r.user_id
+        join prod_customer_service.customer c on c.id = r.user_id 
+#     and month(date_add(c.birthday, interval 7 hour ))=2
+    and r.last_order_type = 'online'
+    and datediff(curdate(), last_order_time_online) between 15 and 60
+		-- and l.loyalty_level IS NOT NULL
+		and r.source_of_last_order_online LIKE '%moon%'
+),
+
+t2 AS
+(SELECT DISTINCT
+			c.customer_id
+		FROM
+			prod_order_service.order_line a
+			LEFT JOIN prod_product_service.product b ON b.id = a.product_id
+			LEFT JOIN prod_order_service.orders c ON c.id = a.order_id 
+		WHERE 
+			a.is_deleted = 0 
+			AND c.channel != 'POS'
+			AND c.source LIKE '%moon%' 
+			AND c.`status` = 'finished'
+			AND c.return_status = 'unreturned'
+			AND LEFT ( a.product_code, 3 ) NOT IN ('BDN', 'BDM')
+)
+
+SELECT
+	t1.*
+FROM t1 
+WHERE t1.ma_kh IN (SELECT t2.customer_id FROM t2);
+
