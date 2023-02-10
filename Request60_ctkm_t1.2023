@@ -1,0 +1,120 @@
+WITH t1 AS	
+(SELECT
+	o.id AS order_id,
+	o.customer_id,
+	CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) as date) AS created_date,
+	o.channel,
+	CASE WHEN o.channel = 'POS' THEN 'offline' ELSE 'online' END AS channel_type,
+	o.note,
+	o.source,
+	o.store AS delivery_store,
+	o.STATUS,
+	o.return_status,
+	o.is_deleted,
+	o.total,
+	o.total_discount,
+	o.total_line_amount_after_line_discount
+FROM  prod_order_service.orders o 
+WHERE CAST(DATE_ADD(o.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-31'
+	AND o.`status` = 'finished'
+	AND o.return_status = 'unreturned'
+	AND o.is_deleted = 0
+),
+
+c AS
+(SELECT
+		pr.id,
+		pr.title,
+    dc.code,
+    duc.order_id,
+    duc.customer_id,
+    dc.use_status
+FROM prod_promotion_service.price_rule pr
+JOIN prod_promotion_service.discount_code dc on dc.price_rule_id = pr.id
+LEFT JOIN prod_promotion_service.discount_usage_count duc on duc.discount_code = dc.code
+WHERE 
+-- dc.use_status = 'Unavailable' AND 
+CAST(DATE_ADD(duc.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-31'
+AND pr.is_deleted = 0
+AND dc.is_deleted = 0
+),
+
+pm AS
+(SELECT
+	p.order_id,
+	sum(p.amount) AS amount
+FROM prod_order_service.payment p
+WHERE p.payment_method_code = 'point' AND CAST(DATE_ADD(p.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-31'
+AND p.is_deleted = 0
+GROUP BY p.order_id
+),
+
+t2 AS
+(SELECT
+	t1.created_date AS 1_ngay_mua,
+	t1.order_id AS 2_ma_don_hang,
+	t1.customer_id AS 3_ma_khach_hang,
+	l.id AS 4_order_line_id,
+	l.product AS 5_ten_san_pham,
+	LEFT(l.sku,3) AS 6_ma3_sp,
+	l.product_code AS 7_ma_7kt,
+	l.price AS 8_price,
+	l.quantity AS 9_quantity,
+	p.category AS 10_category,
+	t1.note AS 11_note_ck_dh,
+	CASE WHEN l.distributed_order_discount >0 THEN c.code ELSE NULL END AS 12_ma_ck_dh,
+	CASE WHEN l.distributed_order_discount >0 THEN c.title ELSE NULL END AS 13_ten_ck_dh,
+	CASE WHEN l.distributed_order_discount >0 THEN c.id ELSE NULL END AS 14_id_ck_dh,
+	CASE WHEN l.discount_amount > 0 THEN i.promotion_id ELSE NULL END AS 15_id_ctkm_ck_sp,
+	CASE WHEN l.discount_amount > 0 THEN i.promotion_title ELSE NULL END AS 16_ten_ctkm_ck_sp,
+	CASE WHEN l.discount_amount > 0 THEN i.reason ELSE NULL END AS 17_note_ck_sp,
+	l.distributed_order_discount AS 18_ck_dh_phan_bo,
+	l.discount_amount AS 19_tong_ck_sp,
+	l.discount_rate AS 20_phan_tram_ck_sp,
+	l.amount AS 21_tong_ban,
+	t1.total_line_amount_after_line_discount AS 22_tong_ban_sau_ck_sp,
+	l.line_amount_after_line_discount AS 23_gia_tri_sp_sau_ck,
+	-- l.line_amount_after_line_discount AS 13_doanh_thu_sau_ck_sp,
+	CASE
+	WHEN pm.amount IS NOT NULL THEN pm.amount ELSE 0 END AS 24_gia_tri_tieu_diem_dh,
+	-- l.total_tax_line AS 15_gia_tri_thue,
+	
+	l.discount_amount + l.distributed_order_discount AS 25_tong_ck
+	
+FROM prod_order_service.order_line l
+LEFT JOIN t1 ON l.order_id = t1.order_id
+LEFT JOIN prod_product_service.product p ON p.id = l.product_id
+LEFT JOIN prod_order_service.discount_item i ON i.order_line_id = l.id
+LEFT JOIN c ON c.order_id = t1.order_id 
+LEFT JOIN pm ON pm.order_id = t1.order_id
+WHERE 
+	(CAST(DATE_ADD(l.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-31' 
+	AND l.price > 0 
+	AND l.distributed_order_discount > 0
+	AND l.is_deleted = 0
+	AND t1.`status` = 'finished'
+	AND t1.return_status = 'unreturned'
+	AND t1.is_deleted = 0) 
+	OR 
+	(CAST(DATE_ADD(l.created_date,INTERVAL 7 HOUR) as date) BETWEEN '2023-01-01' AND '2023-01-31'
+	AND l.price > 0 
+	AND l.discount_amount > 0
+	AND l.is_deleted = 0
+	AND t1.`status` = 'finished'
+	AND t1.return_status = 'unreturned'
+	AND t1.is_deleted = 0)
+),
+
+t3 AS
+(SELECT 
+*,
+CASE
+WHEN t2.22_tong_ban_sau_ck_sp = 0 THEN 0
+ELSE (t2.23_gia_tri_sp_sau_ck/t2.22_tong_ban_sau_ck_sp)*24_gia_tri_tieu_diem_dh END AS 26_gia_tri_tieu_diem_dh_phan_bo,
+CASE
+WHEN t2.22_tong_ban_sau_ck_sp = 0 THEN 0
+ELSE t2.23_gia_tri_sp_sau_ck - 18_ck_dh_phan_bo - (t2.23_gia_tri_sp_sau_ck/t2.22_tong_ban_sau_ck_sp)*24_gia_tri_tieu_diem_dh END AS 27_doanh_thu_thuan_sp
+FROM t2 
+)
+	
+SELECT t3.4_order_line_id, count(*) FROM t3 GROUP BY t3.4_order_line_id HAVING count(*) >1
