@@ -1,0 +1,68 @@
+WITH t1 AS
+(SELECT
+	DATE_FORMAT(a.created_date,'%Y%m') AS month_create,
+	a.TELEPHONE_NUMBER AS mdn,
+	SUM(CASE WHEN a.LINE_STATUS IN ('ACTIVE', 'RESTRICTED') THEN 1 ELSE 0 END) AS nb_day_active
+	
+FROM mdn_snapshot_2023 a 
+WHERE a.created_date BETWEEN '2023-01-01' AND '2023-04-30' 
+AND a.TELEPHONE_NUMBER = '9205096568'
+GROUP BY 1, 2
+),
+
+t2 AS
+(SELECT
+	b.`year_month` AS month_year,
+	b.mdn,
+	SUM(b.data) AS v_data,
+	SUM(b.sms_mo) AS v_sms_mo,
+	SUM(b.sms_mt) AS v_sms_mt,
+	SUM(b.voice_mo) AS v_voice_mo,
+	SUM(b.voice_mt) AS v_voice_mt,
+	SUM(b.voice_cf) AS v_voice_cf,
+	SUM(b.vm) AS v_vm,
+	SUM(CASE WHEN b.data >0 THEN 1 ELSE 0 END) AS nb_day_use_data,
+	SUM(CASE WHEN b.sms_mo >0 THEN 1 ELSE 0 END) AS nb_day_use_sms_mo,
+	SUM(CASE WHEN b.sms_mt >0 THEN 1 ELSE 0 END) AS nb_day_use_sms_mt,
+	SUM(CASE WHEN b.voice_mo >0 THEN 1 ELSE 0 END) AS nb_day_use_voice_mo,
+	SUM(CASE WHEN b.voice_mt >0 THEN 1 ELSE 0 END) AS nb_day_use_voice_mt,
+	SUM(CASE WHEN b.voice_cf >0 THEN 1 ELSE 0 END) AS nb_day_use_voice_cf,
+	SUM(CASE WHEN b.vm >0 THEN 1 ELSE 0 END) AS nb_day_use_vm
+FROM usage_data_detail_2023 b
+WHERE b.effective_date BETWEEN '2023-01-01' AND '2023-04-30' 
+AND b.mdn = '9205096568'
+GROUP BY 1, 2
+)
+
+SELECT
+t1.*,
+t2.v_data,
+t2.nb_day_use_data,
+t2.v_data/t2.nb_day_use_data AS avg_volume_data,
+
+t2.v_sms_mo,
+t2.nb_day_use_sms_mo,
+t2.v_sms_mo/t2.nb_day_use_sms_mo AS avg_volume_sms_mo,
+
+t2.v_sms_mt,
+t2.nb_day_use_sms_mt,
+t2.v_sms_mt/t2.nb_day_use_sms_mt AS avg_volume_sms_mt,
+
+t2.v_voice_mo,
+t2.nb_day_use_voice_mo,
+t2.v_voice_mo/t2.nb_day_use_voice_mo AS avg_volume_voice_mo,
+
+t2.v_voice_mt,
+t2.nb_day_use_voice_mt,
+t2.v_voice_mt/t2.nb_day_use_voice_mt AS avg_volume_voice_mt,
+
+t2.v_voice_cf,
+t2.nb_day_use_voice_cf,
+t2.v_voice_cf/t2.nb_day_use_voice_cf AS avg_volume_voice_cf,
+
+t2.v_vm,
+t2.nb_day_use_vm,
+t2.v_vm/t2.nb_day_use_vm AS avg_volume_vm
+
+FROM t1
+LEFT JOIN t2 ON t1.mdn = t2.mdn AND t1.month_create = t2.month_year
