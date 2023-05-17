@@ -1,0 +1,153 @@
+# 1. f_nlad_transaction
+SELECT
+	a.id,
+	a.enrollment_id,
+	-- a.`status` AS transaction_status,
+	a.nlad_transaction_date,
+	a.transaction_type,
+	-- a.etc_general_use,
+	-- a.service_type,
+	-- a.enrollment_type,
+	-- a.city,
+	-- a.state,
+        'Cintex' as brand -- change 'Airtalk' or 'Newphone'
+FROM oss_nlad_transactions a
+WHERE 
+a.transaction_type NOT IN ('UPDATE', 'TRANSFEROUT_PENDING', 'Has Usage')
+AND a.nlad_transaction_date > '2021-12-31';
+
+---------------------------------------------------
+
+# 2. d_enrollment_profile
+SELECT
+	b.id AS enrollment_id,
+	b.enrollment_id AS enrollment_code,
+	TIMESTAMPDIFF(YEAR,b.dob,NOW()) AS age,
+        b.enrollment_type,
+	b.city,
+	b.state,
+	-- b.source,
+	CASE WHEN b.carrier_id = 1 THEN 'PWG_TMB' WHEN b.carrier_id = 2 THEN 'ATT' ELSE NULL END AS carrier,
+	b.plan_id,
+	b.product_variant_id,
+	'Airtalk' AS brand
+FROM oss_enrollments b
+
+----------------------------------------------------
+
+# 3. d_enrollment_behavior
+WITH 
+tmin AS
+(SELECT DISTINCT
+a.enrollment_id,
+MIN(a.nlad_transaction_date) AS min_date,
+a.transaction_type AS min_transaction_type
+FROM oss_nlad_transactions a
+WHERE a.enrollment_id IS NOT null
+GROUP BY 1
+
+),
+
+tmax AS
+(SELECT DISTINCT
+a.enrollment_id,
+max(a.nlad_transaction_date) AS max_date,
+a.transaction_type AS max_transaction_type
+FROM oss_nlad_transactions a
+WHERE a.enrollment_id IS NOT null
+GROUP BY 1
+),
+
+t0 AS
+(SELECT DISTINCT
+a.enrollment_id,
+max(a.nlad_transaction_date) AS max_date_transfer,
+a.transaction_type AS max_transaction_type_transfer
+FROM oss_nlad_transactions a
+WHERE a.enrollment_id IS NOT NULL
+AND a.transaction_type NOT IN ('UPDATE', 'TRANSFEROUT_PENDING', 'Has Usage')
+AND a.nlad_transaction_date > '2021-12-31'
+GROUP BY 1
+),
+
+t1 AS
+(SELECT DISTINCT
+	a.enrollment_id,
+	sum(CASE WHEN a.transaction_type = 'TRANSFEROUT' THEN 1 ELSE 0 END) AS nb_out,
+	sum(CASE WHEN a.transaction_type = 'DEENROLL' THEN 1 ELSE 0 END) AS nb_de_enroll,
+	sum(CASE WHEN a.transaction_type = 'TRANSFERIN' THEN 1 ELSE 0 END) AS nb_in,
+	sum(CASE WHEN a.transaction_type = 'ENROLL' THEN 1 ELSE 0 END) AS nb_enroll
+FROM oss_nlad_transactions a 
+WHERE a.transaction_type NOT IN ('UPDATE', 'TRANSFEROUT_PENDING', 'Has Usage')
+AND a.nlad_transaction_date > '2021-12-31' 
+GROUP BY 1 
+)
+
+SELECT
+	b.id AS enrollment_id,
+	b.enrollment_id AS enrollment_code,
+	-- STR_TO_DATE(d.last_usage_at,'%Y-%m-%d') AS last_usage_date,
+	DATEDIFF(NOW(),STR_TO_DATE(d.last_usage_at,'%Y-%m-%d')) AS recent_day,
+	-- d.ebb_disconnected_reason,
+	-- d.lifeline_disconnected_reason,
+	t1.nb_out,
+	t1.nb_de_enroll,
+	t1.nb_in,
+	t1.nb_enroll,
+	-- t0.max_transaction_type_transfer,
+	-- t0.max_date_transfer,
+	tmin.min_date,
+	-- tmin.min_transaction_type,
+	tmax.max_date,
+	-- tmax.max_transaction_type,
+	'Airtalk' AS brand
+FROM oss_enrollments b
+LEFT JOIN oss_customers d ON d.enrollment_id = b.id
+LEFT JOIN t1 ON t1.enrollment_id = b.id
+LEFT JOIN t0 ON t0.enrollment_id = b.id
+LEFT JOIN tmin ON tmin.enrollment_id = b.id
+LEFT JOIN tmax ON tmax.enrollment_id = b.id
+
+--------------------------------------------------------------
+
+# 4. d_plan
+SELECT
+	a.id AS plan_id,
+	# a.`name` AS plan_name,
+	# a.description,
+	# a.plan_type,
+	a.plan_code,
+	a.voice,
+	a.sms,
+	a.`data`,
+	'Airtalk' AS brand
+FROM oss_plans a 
+
+----------------------------------------------------------------
+
+# 5. product
+SELECT
+	a.id,
+	a.sku,
+	# a.quantity,
+	# a.is_out_of_stock,
+	a.product_id,
+	# a.retail_price,
+	# a.status,
+	b.`name` AS product_name,
+	# b.screen,
+	# b.battery,
+	# b.camera,
+	# b.`storage`,
+	# b.display,
+	# b.memory,
+	# b.size,
+	b.category_id,
+	c.`name` AS category,
+	# c.type,
+	# b.is_pay_later,
+	# b.is_bundle,
+       'Airtalk' AS brand
+FROM oss_product_variants a 
+LEFT JOIN oss_products b ON b.id = a.product_id
+LEFT JOIN oss_categories c ON c.id = b.category_id
