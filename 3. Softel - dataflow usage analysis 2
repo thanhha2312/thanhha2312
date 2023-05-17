@@ -1,0 +1,94 @@
+# 1. total user active status
+WITH recursive all_dates ( dt ) AS ( -- anchor
+	SELECT '2023-01-01' dt UNION ALL -- recursion with stop condition
+SELECT dt + INTERVAL 1 MONTH FROM all_dates WHERE dt < '2023-04-01' ),
+t1 AS
+(SELECT DISTINCT a.TELEPHONE_NUMBER AS mdn FROM mdn_snapshot_2023 a 
+WHERE a.LINE_STATUS IN ('ACTIVE', 'RESTRICTED')
+)
+,
+t2 AS
+(SELECT
+	d.dt date,
+	t1.mdn
+FROM all_dates d, t1 ORDER BY 1, 2
+),
+t3 AS
+(SELECT CONCAT(YEAR(t2.date),MONTH(t2.date)) AS month_date, t2.mdn FROM t2)
+,
+d AS
+(SELECT b.year_month AS month_date, b.mdn, b.active_days FROM last_usage b WHERE b.rnk = 1
+)
+,
+t4 AS
+(SELECT
+t3.*,
+d.active_days
+FROM t3
+LEFT JOIN d ON d.month_date = t3.month_date AND d.mdn = t3.mdn ORDER BY t3.mdn, t3.month_date
+)
+SELECT 
+t4.month_date,
+t4.mdn,
+CASE WHEN t4.active_days IS NOT NULL THEN t4.active_days ELSE 0 END AS active_days
+FROM t4 
+
+----------------------------------------------
+
+# 2. last_usage
+SELECT 
+	a.`year_month`,
+	a.mdn,
+	CONCAT(a.`year_month`,a.mdn) AS mdn_map_id,
+	a.subscriber_id,
+	a.`data`,
+	a.sms_mo,
+	a.sms_mt,
+	a.voice_mo,
+	a.voice_mt,
+	a.voice_cf,
+	a.vm,
+	a.active_days,
+	CASE
+		WHEN a.last_usage_date_all <> 0 THEN a.last_usage_date_all
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_data IS NOT NULL THEN a.last_usage_date_data
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_sms_mo IS NOT NULL THEN a.last_usage_date_sms_mo
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_sms_mt IS NOT NULL THEN a.last_usage_date_sms_mt
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_voice_mo IS NOT NULL THEN a.last_usage_date_voice_mo
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_voice_mt IS NOT NULL THEN a.last_usage_date_voice_mt
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_voice_cf IS NOT NULL THEN a.last_usage_date_voice_cf
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_vm IS NOT NULL THEN a.last_usage_date_vm
+		ELSE NULL 
+		END AS last_usage_date_all_total,
+		
+	a.last_usage_date_all,
+	a.usage_type_of_last_usage_date_all,
+	a.carrier_id,
+	a.id
+FROM `last_usage` a
+WHERE a.rnk = 1 AND a.year = 2023 AND a.month <> 5 
+
+-------------------------------------------------------
+
+# 3. Usage price
+WITH t1 AS
+(SELECT
+	DATE_FORMAT(a.created_date,'%Y-%m-%d') AS date,
+	CONCAT(YEAR(a.created_date),MONTH(created_date)) AS month_year,
+	a.TELEPHONE_NUMBER AS mdn,
+	a.LINE_STATUS,
+	a.DEBIT_PLAN AS plan_name,
+	CASE WHEN a.DEBIT_PLAN = 'Hotline Plan' THEN 3.4 WHEN a.DEBIT_PLAN = 'Suspend Plan' THEN 0.5 ELSE 9.25 END AS price,
+	CASE WHEN a.DEBIT_PLAN = 'Hotline Plan' THEN 3.4/30 WHEN a.DEBIT_PLAN = 'Suspend Plan' THEN 0.5/30 ELSE 9.25/30 END AS unit_price
+FROM mdn_snapshot_2023 a
+WHERE a.LINE_STATUS IN ('ACTIVE'))
+
+SELECT
+t1.month_year,
+t1.mdn,
+sum(t1.unit_price) AS total_amount
+FROM t1 
+GROUP BY 1, 2
+
+
+
