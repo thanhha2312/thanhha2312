@@ -1,0 +1,95 @@
+# 1. d_customer_behaviour
+SELECT
+	tc.id AS customer_id,
+	# tc.carrier_subscriber_id,
+	# CASE WHEN tc.`status` = 1 THEN 'Pending' WHEN tc.`status` = 2 THEN 'Inactive' WHEN tc.`status` = 3 THEN 'Suspend' WHEN tc.`status` = 4 THEN 'Active' ELSE NULL END AS `oss_status`,
+	# CASE WHEN tc.is_fulfilled = 2 THEN 'Fulfilled' ELSE NULL END AS is_fulfilled,
+	
+	tc.created_at AS approval_date,  
+	# tc.activated_at AS activation_date,
+	TIMESTAMPDIFF(DAY,tc.created_at,NOW()) AS nb_day_lifetime,
+	TIMESTAMPDIFF(DAY,tc.created_at,tc.activated_at) AS nb_day_activate,
+	TIMESTAMPDIFF(DAY,tc.created_at,tc.last_usage_at) AS nb_day_usage,
+	
+	# last usage
+	tc.last_usage_at,  
+	tc.last_usage_by,  
+	# tc.last_usage_checked_at,
+	tc.last_send_mail_none_usage_at,
+	tc.send_mail_none_usage_status,
+	# tc.last_usage_carrier,
+	# tc.month_claimed,
+	# last_send_consent_at,
+	TIMESTAMPDIFF(DAY,tc.last_usage_at,NOW()) AS nb_day_recent,
+	# CASE WHEN tc.last_send_mail_none_usage_at > tc.last_usage_at THEN 'action success' WHEN tc.last_send_mail_none_usage_at < tc.last_send_mail_none_usage_at THEN 'action no success' ELSE 'no action' END AS mail_send_success,
+	
+	#lifeline
+	# tc.lifeline_subscriber_id AS lifeline_subscriberID,
+	# tc.lifeline_disconnected_date AS lifeline_disconnected_date,
+	# ll_reason.reason AS lifeline_disconnected_reason,
+	# tc.lifeline_reconnected_date AS lifeline_reconnected_date,
+	#CASE 
+	#	WHEN tc.lifeline_disconnected_date IS NULL AND tc.lifeline_reconnected_date IS NULL THEN 'lifeline connected'
+	#	WHEN tc.lifeline_disconnected_date IS NULL AND tc.lifeline_reconnected_date IS NOT NULL THEN 'lifeline reconnected'
+	#	WHEN tc.lifeline_disconnected_date IS NOT NULL AND tc.lifeline_reconnected_date IS NULL THEN 'lifeline disconnected'
+	#	WHEN tc.lifeline_disconnected_date IS NOT NULL AND tc.lifeline_reconnected_date IS NOT NULL THEN 'lifeline reconnected'
+	#	ELSE NULL END AS lifeline_connect_status,
+	
+	# acp
+	# tc.ebb_subscriber_id AS acp_subscriberID,
+	# tc.ebb_disconnected_date AS acp_disconnected_date,  
+	# ebb_reason.reason AS acp_disconnected_reason,
+	# tc.ebb_reconnected_date AS acp_reconnected_date,
+	# CASE 
+	#	WHEN tc.ebb_disconnected_date IS NULL AND tc.ebb_reconnected_date IS NULL THEN 'acp connected'
+	#	WHEN tc.ebb_disconnected_date IS NULL AND tc.ebb_reconnected_date IS NOT NULL THEN 'acp reconnected'
+	#	WHEN tc.ebb_disconnected_date IS NOT NULL AND tc.ebb_reconnected_date IS NULL THEN 'acp disconnected'
+	#	WHEN tc.ebb_disconnected_date IS NOT NULL AND tc.ebb_reconnected_date IS NOT NULL THEN 'acp reconnected'
+	#	ELSE NULL END AS acp_connect_status,
+		
+	'Airtalk' AS brand
+	
+FROM oss_customers tc
+# LEFT JOIN oss_disconnection_reasons ll_reason ON ll_reason.id = tc.lifeline_disconnected_reason
+# LEFT JOIN oss_disconnection_reasons ebb_reason ON ebb_reason.id = tc.ebb_disconnected_reason
+WHERE tc.`status` = 4 AND tc.is_fulfilled = 2
+
+-----------------------------------------------
+
+# 2. d_customer_profile
+SELECT
+	tc.id AS customer_id,
+	tc.enrollment_id,
+	tc.mdn_active AS mdn,  
+	# tc.mvne_id,
+	en.city,  
+	en.state,  
+	# en.zip_code,
+	TIMESTAMPDIFF(YEAR,en.dob,NOW()) AS age,
+	CASE WHEN en.carrier_id = 1 THEN 'PWG_TMB' WHEN en.carrier_id = 2 THEN 'ATT' ELSE NULL END AS carrier,
+	CASE WHEN en.enrollment_type  = 1 THEN 'ACP' WHEN en.enrollment_type = 2 THEN 'LIFELINE' WHEN en.enrollment_type = 3 THEN 'COMBO' ELSE NULL END AS enrollment_type,
+	en.plan_id,
+	en.product_variant_id,
+	'Airtalk' AS brand
+FROM oss_customers tc
+LEFT JOIN oss_enrollments en ON tc.enrollment_id = en.id
+
+--------------------------------------------------
+
+# 3. d_customer_transfer
+SELECT DISTINCT
+	a.enrollment_id,
+	max(CASE WHEN a.transaction_type = 'TRANSFEROUT' OR a.transaction_type = 'DEENROLL' THEN a.nlad_transaction_date ELSE NULL END) AS last_out_date,
+	max(CASE WHEN a.transaction_type = 'TRANSFERIN' OR a.transaction_type = 'ENROLL' THEN a.nlad_transaction_date ELSE NULL END) AS last_in_date,
+	sum(CASE WHEN a.transaction_type = 'TRANSFEROUT' OR a.transaction_type = 'DEENROLL' THEN 1 ELSE 0 END) AS nb_out,
+	sum(CASE WHEN a.transaction_type = 'TRANSFERIN' THEN 1 ELSE 0 END) AS nb_transfer_in,
+	sum(CASE WHEN a.transaction_type = 'TRANSFERIN' OR a.transaction_type = 'ENROLL' THEN 1 ELSE 0 END) AS nb_in,
+	sum(CASE WHEN a.transaction_type = 'TRANSFEROUT' THEN 1 ELSE 0 END) AS nb_transfer_out,
+	'Airtalk' AS brand
+FROM oss_nlad_transactions a 
+WHERE a.enrollment_id IS NOT NULL
+GROUP BY 1
+
+
+
+
