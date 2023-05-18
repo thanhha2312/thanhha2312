@@ -61,8 +61,18 @@ WITH t1 AS
 (SELECT
 	tc.id AS customer_id,
 	tc.enrollment_id,
-	tc.mdn_active AS mdn, 
-	-- CASE WHEN tc.mdn_active IS NULL THEN 1 ELSE 
+	# behaviour
+	tc.created_at AS approval_date,  
+	TIMESTAMPDIFF(DAY,tc.created_at,NOW()) AS nb_day_lifetime,
+	TIMESTAMPDIFF(DAY,tc.created_at,tc.activated_at) AS nb_day_activate,
+	TIMESTAMPDIFF(DAY,tc.created_at,tc.last_usage_at) AS nb_day_usage,
+	tc.last_usage_at,  
+	tc.last_usage_by,  
+	tc.last_send_mail_none_usage_at,
+	tc.send_mail_none_usage_status,
+	TIMESTAMPDIFF(DAY,tc.last_usage_at,NOW()) AS nb_day_recent,
+	
+	tc.mdn_active AS mdn,
 	RANK() over (PARTITION BY tc.mdn_active ORDER BY tc.activated_at DESC) AS customer_rank,
   # tc.activated_at,
   # tc.is_mismatch_mdn_carrier,
@@ -83,6 +93,17 @@ WHERE tc.`status` = 4 AND tc.is_fulfilled = 2
 SELECT 
 	t1.customer_id,
 	t1.enrollment_id,
+	
+	t1.approval_date,
+	t1.nb_day_lifetime,
+	t1.nb_day_activate,
+	t1.nb_day_usage,
+	t1.last_usage_at,
+	t1.last_usage_by,
+	t1.last_send_mail_none_usage_at,
+	t1.send_mail_none_usage_status,
+	t1.nb_day_recent,
+	
 	t1.mdn,
 	t1.city,
 	t1.state,
