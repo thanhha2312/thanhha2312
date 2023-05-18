@@ -57,10 +57,15 @@ WHERE tc.`status` = 4 AND tc.is_fulfilled = 2
 -----------------------------------------------
 
 # 2. d_customer_profile
-SELECT
+WITH t1 AS
+(SELECT
 	tc.id AS customer_id,
 	tc.enrollment_id,
-	tc.mdn_active AS mdn,  
+	tc.mdn_active AS mdn, 
+	-- CASE WHEN tc.mdn_active IS NULL THEN 1 ELSE 
+	RANK() over (PARTITION BY tc.mdn_active ORDER BY tc.activated_at DESC) AS customer_rank,
+  # tc.activated_at,
+  # tc.is_mismatch_mdn_carrier,
 	# tc.mvne_id,
 	en.city,  
 	en.state,  
@@ -73,6 +78,21 @@ SELECT
 	'Airtalk' AS brand
 FROM oss_customers tc
 LEFT JOIN oss_enrollments en ON tc.enrollment_id = en.id
+WHERE tc.`status` = 4 AND tc.is_fulfilled = 2
+)
+SELECT 
+	t1.customer_id,
+	t1.enrollment_id,
+	t1.mdn,
+	t1.city,
+	t1.state,
+	t1.age,
+	t1.carrier,
+	t1.enrollment_type,
+	t1.plan_id,
+	t1.product_variant_id,
+	t1.brand
+FROM t1 WHERE t1.customer_rank = 1
 
 --------------------------------------------------
 
