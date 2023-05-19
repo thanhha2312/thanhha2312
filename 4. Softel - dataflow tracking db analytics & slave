@@ -1,0 +1,31 @@
+SELECT table_name, table_rows FROM information_schema.tables WHERE table_name IN 
+(
+'pwg_cdrs_01_23_usage_data_raw',
+'pwg_cdrs_01_23_usage_data_detail',
+'pwg_cdrs_02_23_usage_data_raw',
+'pwg_cdrs_02_23_usage_data_detail',
+'pwg_cdrs_03_23_usage_data_raw',
+'pwg_cdrs_03_23_usage_data_detail',
+'pwg_cdrs_04_23_usage_data_raw',
+'pwg_cdrs_04_23_usage_data_detail',
+'usage_data_detail_2023',
+'usage_data_sum_2023',
+'last_usage',
+'last_usage_att',
+'pooling',
+'EricUsageSummary',
+'ATTUsageSummary',
+'ATTDataRecords',
+'ATTVoiceRecords',
+'EricCallAdjustments'
+)
+;
+WITH t1 AS
+(SELECT 'usage_data_sum_2023' AS table_name, `year_month`, COUNT(DISTINCT mdn) AS nb_mdn, SUM(sms_mt) AS sms_mt FROM usage_data_sum_2023 GROUP BY 1, 2),
+t2 AS
+(SELECT  'last_usage_att' AS table_name, `year_month`, COUNT(DISTINCT mdn) AS nb_mdn, SUM(sms_mt) AS sms_mt FROM last_usage_att GROUP BY 1, 2),
+t3 AS
+(SELECT  'last_usage' AS table_name, `year_month`, COUNT(DISTINCT mdn) AS nb_mdn, SUM(sms_mt) AS sms_mt FROM last_usage GROUP BY 1, 2)
+
+SELECT * FROM t1 UNION all SELECT * FROM t2 UNION ALL SELECT * FROM t3
+
