@@ -1,0 +1,45 @@
+WITH t1 AS
+(SELECT 
+	a.`year_month`,
+	a.mdn,
+	CONCAT(a.`year_month`,a.mdn) AS mdn_map_id,
+	# a.subscriber_id,
+	a.`data`,
+	a.sms_mo,
+	a.sms_mt,
+	a.voice_mo,
+	a.voice_mt,
+	a.voice_cf,
+	a.vm,
+	a.active_days,
+	CASE
+		WHEN a.last_usage_date_all <> 0 THEN a.last_usage_date_all
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_data IS NOT NULL THEN a.last_usage_date_data
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_sms_mo IS NOT NULL THEN a.last_usage_date_sms_mo
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_sms_mt IS NOT NULL THEN a.last_usage_date_sms_mt
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_voice_mo IS NOT NULL THEN a.last_usage_date_voice_mo
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_voice_mt IS NOT NULL THEN a.last_usage_date_voice_mt
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_voice_cf IS NOT NULL THEN a.last_usage_date_voice_cf
+		WHEN a.last_usage_date_all = 0 AND a.last_usage_date_vm IS NOT NULL THEN a.last_usage_date_vm
+		ELSE NULL 
+		END AS last_usage_date_all_total,
+		
+	# a.last_usage_date_all,
+	# a.usage_type_of_last_usage_date_all,
+	a.carrier_id
+	# a.id
+FROM `last_usage` a
+WHERE a.rnk = 1 AND a.year = 2023 AND a.month <> 5
+-- AND a.mdn IN ('2058996504', '2058996512','2058996514')
+-- LIMIT 10
+)
+
+SELECT DISTINCT
+	t1.mdn,
+	t1.carrier_id,
+	count(DISTINCT t1.mdn_map_id) AS month_active,
+	ROUND(sum(t1.data) + sum(t1.sms_mo) + sum(t1.sms_mt) + sum(t1.voice_mo) + sum(t1.voice_mt) + sum(t1.voice_cf) + sum(t1.vm),0) AS volume,
+	sum(t1.active_days) AS total_active_day,
+	DATEDIFF('2023-04-30',max(t1.last_usage_date_all_total)) AS latest_recency_day	
+FROM t1
+GROUP BY 1, 2
