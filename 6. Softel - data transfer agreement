@@ -1,0 +1,36 @@
+# test dữ liệu
+SELECT 
+	a.id,
+	a.enrollment_id,
+	a.`status`,
+	a.nlad_transaction_id,
+	a.transfer_type,
+	b.transaction_type
+FROM oss_transfer_agreements a
+LEFT JOIN oss_nlad_transactions b ON b.id = a.nlad_transaction_id
+WHERE a.consent LIKE "%yes%" AND b.transaction_type NOT IN ("TRANSFEROUT", "TRANSFEROUT_PENDING")
+# chỉ có 1 transaction type = TRANSFERIN: enrollment_id = 509713, id = 696248, nlad_transaction_id = 1100297
+;
+WITH 
+t1 AS
+(SELECT
+	DATE_FORMAT(a.created_at,"%Y-%m-%d") AS created_date,
+	COUNT(DISTINCT a.enrollment_id) AS sl_enrollment_agree
+FROM oss_transfer_agreements a 
+WHERE a.consent LIKE "%yes%"
+GROUP BY 1
+),
+
+t2 AS
+(SELECT
+	t.nlad_transaction_date,
+	COUNT(DISTINCT t.enrollment_id) AS sl_enroll
+FROM oss_nlad_transactions t 
+WHERE t.nlad_transaction_date >= "2023-01-01" AND t.transaction_type IN ("TRANSFERIN", "ENROLL")
+GROUP BY 1
+)
+
+SELECT t2.nlad_transaction_date, t2.sl_enroll, t1.sl_enrollment_agree
+FROM t2 LEFT JOIN t1 ON t2.nlad_transaction_date = t1.created_date
+
+
