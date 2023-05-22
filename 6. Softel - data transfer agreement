@@ -17,7 +17,7 @@ t1 AS
 	DATE_FORMAT(a.created_at,"%Y-%m-%d") AS created_date,
 	COUNT(DISTINCT a.enrollment_id) AS sl_enrollment_agree
 FROM oss_transfer_agreements a 
-WHERE a.consent LIKE "%yes%"
+WHERE a.consent LIKE "%yes%" AND a.nlad_transaction_id IS NOT NULL
 GROUP BY 1
 ),
 
