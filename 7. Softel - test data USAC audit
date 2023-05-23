@@ -1,0 +1,129 @@
+# Usac audit
+
+# 15
+# KH phải có thêm đk tranfer in/enroll vào thời điểm min (nlad_transaction_date) vì có nhiều trường hợp GD đầu tiên là out, null
+# 295 KH có ngày min (nlad_transaction_date) < ngày created_at :2 ngày ở 2 tháng khác nhau, transaction_type = transferin, enroll
+WITH t1 AS
+(SELECT
+	DATE_FORMAT(c.created_at,"%Y-%m-%d") AS created_at,
+	c.id AS customer_id,
+	c.enrollment_id
+FROM oss_customers c 
+WHERE c.created_at >= '2022-01-01'
+),
+
+t2 AS 
+(SELECT
+	t.enrollment_id,
+	min(t.nlad_transaction_date) AS min_date,
+	t.id AS transaction_id,
+	t.transaction_type 
+FROM oss_nlad_transactions t 
+WHERE t.enrollment_type IN ('EBB', 'ACP')
+GROUP BY 1
+),
+t3 AS
+(SELECT
+	t1.customer_id,
+	t1.created_at,
+	t1.enrollment_id,
+	t2.min_date,
+	t2.transaction_id,
+	t2.transaction_type
+FROM t1 
+LEFT JOIN t2 ON t1.enrollment_id = t2.enrollment_id
+)
+
+SELECT *
+FROM t3
+WHERE t3.min_date < t3.created_at
+;
+
+# 16.b
+# test tribal_benefit_flag: có 2 giá trị 0, 1 và null
+SELECT DISTINCT t.tribal_benefit_flag, t.tribal_address_flag
+FROM oss_nlad_transactions t
+WHERE t.tribal_benefit_flag IS NOT NULL AND t.enrollment_type IN ('EBB', 'ACP')
+;
+
+# 16.f
+# test transfer_exception: có 5 giá trị: TE1, TE4, TE2, N?, TE3?
+SELECT DISTINCT t.transfer_exception
+FROM oss_nlad_transactions t
+WHERE t.transfer_exception IS NOT NULL AND t.enrollment_type IN ('EBB', 'ACP')
+;
+
+# 16.g: Copay
+# oss_customer_orders: status: 1: new; 2: processing; 3: completed; type: 1: simple order, 2: complex order, 3: replacement order, 4: upgrade order
+# oss_customer_order_transaction_details: product_type: 3 giá trị: Phone, SIM, Plan
+SELECT DISTINCT d.product_type
+FROM oss_customer_order_transaction_details d 
+;
+# A. order - transaction - detail
+SELECT
+	c.id AS customer_id,
+	o.id AS order_id,
+	o.`name` AS order_code,
+	DATE_FORMAT(o.created_at,"%Y-%m-%d") AS order_created_date,
+	CASE 
+		WHEN o.`status` = 1 THEN 'New' 
+		WHEN o.`status` = 2 THEN 'Processing'
+		WHEN o.`status` = 3 THEN 'Completed'
+		ELSE o.`status` END AS order_status,
+	CASE
+			WHEN o.type = 1 THEN 'simple order'
+			WHEN o.type = 2 THEN 'complex order'
+			WHEN o.type = 3 THEN 'replacement order'
+			WHEN o.type = 4 THEN 'upgrade order'
+			ELSE o.type END AS order_type,
+	o.is_activate,
+	t.id AS transaction_id,
+	t.gross_amount,
+	t.net_amount,
+	t.tax_amount,
+	t.`status` AS transaction_status,
+	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS transaction_created_date,
+	t.provider,
+	d.product_name,
+	d.product_type,
+	d.product_price,
+	d.total_tax,
+	d.zip_code,
+	d.transaction_type,
+	DATE_FORMAT(d.created_at,"%Y-%m-%d") AS product_created_date
+FROM oss_customers c
+LEFT JOIN oss_customer_orders o ON o.customer_id = c.id
+LEFT JOIN oss_customer_order_transactions t ON t.customer_order_id = o.id
+LEFT JOIN oss_customer_order_transaction_details d ON d.customer_order_transaction_id = t.id
+WHERE d.product_type = 'Plan'
+;
+# B: 
+# oss_enrollments_payments: type: 1: withdraw, 2: refund
+# oss_payment_details: product_type: 2 giá trị: Phone, Plan; đk: product_type = Plan, product_price = 12
+SELECT DISTINCT d.product_type
+FROM oss_payment_details d 
+;
+SELECT
+	c.id AS customer_id,
+	c.enrollment_id,
+	e.upgraded_plan,
+	f.id AS payment_id,
+	f.provider,
+	CASE WHEN f.type = 1 THEN 'withdraw' WHEN f.type = 2 THEN 'refund' ELSE f.type END AS payment_type,
+	f.gross_amount,
+	f.net_amount,
+	f.tax_amount,
+	f.`status` AS payment_status,
+	DATE_FORMAT(f.created_at,"%Y-%m-%d") AS payment_created_date,
+	d.product_name,
+	d.product_type,
+	d.product_price,
+	d.total_tax,
+	d.state_code,
+	d.transaction_type,
+	DATE_FORMAT(d.created_at,"%Y-%m-%d") AS product_created_date
+FROM oss_customers c
+LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
+LEFT JOIN oss_enrollment_payments f ON f.enrollment_id = e.id
+LEFT JOIN oss_payment_details d ON d.enrollment_payment_id = f.id
+WHERE d.product_type = 'Plan' AND d.product_price = 12
