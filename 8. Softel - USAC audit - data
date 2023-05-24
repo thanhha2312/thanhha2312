@@ -202,4 +202,115 @@ ORDER BY 1
 
 SELECT * FROM t2 WHERE t2.hours > 0 AND t2.hours < 24
 
+---------------------------------------
+
+#16d
+-- TH1: các enrollment_id có trên bảng oss_notification_transactions
+WITH t1 AS
+(SELECT
+	a.enrollment_id,
+	a.nlad_transaction_id,
+	a.consent,
+	a.source,
+	a.created_at AS consent_date,
+	b.nlad_transaction_date AS transferout_date,
+	DATEDIFF(a.created_at,b.nlad_transaction_date) AS var_date
+FROM oss_transfer_agreements a 
+LEFT JOIN oss_nlad_transactions b ON b.id = a.nlad_transaction_id
+WHERE a.created_at >= '2022-01-01' 
+AND a.consent = 'YES' 
+AND a.nlad_transaction_id IS NOT NULL
+AND b.transaction_type = 'TRANSFEROUT'
+),
+
+t2 AS
+(SELECT
+	n.enrollment_id,
+	n.created_at
+FROM oss_notification_transactions n
+)
+
+SELECT 
+	t1.enrollment_id,
+	t1.nlad_transaction_id,
+	t1.source,
+	t1.consent_date,
+	t1.transferout_date,
+	max(t2.created_at) AS notification_date
+FROM t1 
+LEFT JOIN t2 ON t1.enrollment_id = t2.enrollment_id AND t2.created_at >= t1.transferout_date AND t2.created_at <= t1.consent_date
+WHERE t2.created_at IS NOT NULL
+GROUP BY 1,2
+;
+
+-- TH2: các enrollment_id ko có trong bảng oss_notification_transactions
+WITH t1 AS
+(SELECT
+	a.enrollment_id,
+	a.nlad_transaction_id,
+	a.consent,
+	a.source,
+	a.created_at AS consent_date,
+	b.nlad_transaction_date AS transferout_date,
+	DATEDIFF(a.created_at,b.nlad_transaction_date) AS var_date
+FROM oss_transfer_agreements a 
+LEFT JOIN oss_nlad_transactions b ON b.id = a.nlad_transaction_id
+WHERE a.created_at >= '2022-01-01' 
+AND a.consent = 'YES' 
+AND a.nlad_transaction_id IS NOT NULL
+AND b.transaction_type = 'TRANSFEROUT'
+),
+
+t2 AS
+(SELECT
+	n.enrollment_id,
+	n.created_at
+FROM oss_notification_transactions n
+)
+
+SELECT 
+	t1.enrollment_id,
+	t1.nlad_transaction_id,
+	t1.source,
+	t1.consent_date,
+	t1.transferout_date,
+	t2.created_at
+FROM t1 
+LEFT JOIN t2 ON t1.enrollment_id = t2.enrollment_id AND t2.created_at >= t1.transferout_date AND t2.created_at <= t1.consent_date
+WHERE t2.created_at IS NULL
+
+---------------------------------------------
+
+#16.c
+SELECT
+ a.enrollment_id,
+ a.nlad_transaction_id,
+ a.consent,
+ DATE_FORMAT(a.created_at, "%Y-%m-%d") AS consent_date
+FROM oss_transfer_agreements a
+WHERE a.consent LIKE '%yes%' AND a.created_at >= '2022-01-01' AND a.nlad_transaction_id IS NOT NULL
+
+----------------------------------------------
+
+#16.h
+-- payment
+SELECT 
+	e.id AS enrollment_id,
+	e.enrollment_id AS enrollment_code,
+	e.upgraded_plan AS plan,
+	f.id AS payment_id,
+	f.provider,
+	CASE WHEN f.type = 1 THEN 'withdraw' WHEN f.type = 2 THEN 'refund' ELSE f.type END AS payment_type,
+	f.gross_amount,
+	f.net_amount,
+	f.tax_amount,
+	f.`status` AS payment_status,
+	DATE_FORMAT(f.created_at,"%Y-%m-%d") AS payment_created_date,
+	d.product_name,
+	d.product_type,
+	d.product_price
+FROM oss_enrollments e
+LEFT JOIN oss_enrollment_payments f ON f.enrollment_id = e.id
+LEFT JOIN oss_payment_details d ON d.enrollment_payment_id = f.id
+WHERE e.upgraded_plan IN (34, 35, 36, 37) AND f.gross_amount >=12
 
