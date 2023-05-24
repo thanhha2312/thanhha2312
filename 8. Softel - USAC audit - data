@@ -90,3 +90,116 @@ SELECT
 	t1.tribal_benefit_flag
 FROM t1 
 LEFT JOIN t2 ON t1.enrollment_id = t2.enrollment_id
+
+-------------------------------------------
+#16e, 16f
+SELECT
+	o.enrollment_id,
+	o.etc_general_use,
+	o.transfer_exception,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 2 ASC
+
+-------------------------------------------
+
+#16i
+SELECT
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'DEENROLL' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 2 ASC
+
+------------------------------------------
+
+#16j
+SELECT
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFEROUT' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 2 ASC
+
+------------------------------------------
+
+#16k
+WITH t1 AS 
+(SELECT
+	o.enrollment_id,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m") AS nlad_transaction_month,
+	COUNT(DISTINCT o.id) AS nb_times
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+GROUP BY 1,2
+ORDER BY 1, 2 ASC
+)
+
+SELECT
+	o.enrollment_id,
+	t1.nb_times,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m") AS nlad_transaction_month,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM oss_nlad_transactions o 
+LEFT JOIN t1 ON t1.enrollment_id = o.enrollment_id AND t1.nlad_transaction_month = DATE_FORMAT(o.nlad_transaction_date,"%Y-%m")
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 5 ASC
+;
+
+-------------------------------------------
+
+#16l
+WITH t1 AS 
+(SELECT
+	o.enrollment_id,
+	COUNT(DISTINCT o.id) AS nb_times_total
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+GROUP BY 1
+ORDER BY 1 ASC
+)
+
+SELECT
+	o.enrollment_id,
+	t1.nb_times_total,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM oss_nlad_transactions o 
+LEFT JOIN t1 ON t1.enrollment_id = o.enrollment_id
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 5 ASC
+;
+
+-----------------------------------------
+
+# 18
+WITH t1 AS 
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.id ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t2 AS
+(SELECT 
+	a.enrollment_id, a.transaction_id, a.nlad_transaction_date, b.nlad_transaction_date AS next_nlad_transaction_date, TIMESTAMPDIFF(HOUR, a.nlad_transaction_date, b.nlad_transaction_date) AS hours
+FROM t1 a
+LEFT JOIN t1 b ON a.enrollment_id = b.enrollment_id  AND a.row_no = b.row_no - 1
+WHERE b.nlad_transaction_date IS NOT NULL
+ORDER BY 1
+)
+
+SELECT * FROM t2 WHERE t2.hours > 0 AND t2.hours < 24
+
+
