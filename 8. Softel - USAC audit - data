@@ -43,14 +43,53 @@ SELECT
 		t3.customer_id,
 		t3.enrollment_id
 FROM t3 
-)
+),
 
-SELECT
+t5 AS
+(SELECT
 	DATE_FORMAT(t4.created_date,"%Y-%m") AS month_create,
 	count(DISTINCT t4.enrollment_id) AS nb_customers
 FROM t4
 GROUP BY 1
 ORDER BY 1 ASC
+),
+
+t6 AS
+(SELECT DISTINCT
+	t.enrollment_id,
+	DATE_FORMAT(t.nlad_transaction_date,"%Y-%m") AS month_create,
+	max(t.id) AS latest_transaction_id,
+	t.transaction_type
+FROM oss_nlad_transactions t 
+WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.enrollment_id IS NOT NULL
+-- AND t.transaction_type IN ('TRANSFEROUT', 'DEENROLL')
+GROUP BY 1, 2
+ORDER BY 1, 2
+),
+t7 AS
+(SELECT
+	t6.month_create,
+	-- count(DISTINCT(CASE WHEN t1.transaction_type = 'ENROLL' THEN t1.enrollment_id END)) AS nb_customers_enroll,
+	count(DISTINCT(CASE WHEN t6.transaction_type IN ('DEENROLL', 'TRANSFEROUT') THEN t6.enrollment_id END)) AS nb_customers_out,
+	count(DISTINCT(CASE WHEN t6.transaction_type IN ('TRANSFERIN') THEN t6.enrollment_id END)) AS nb_customers_in
+FROM t6
+GROUP BY 1
+ORDER BY 1 ASC
+)
+
+SELECT
+	t5.month_create,
+	t5.nb_customers AS nb_enroll,
+	sum(t5.nb_customers) over (ORDER BY t5.month_create) AS nb_enroll_rt,
+	t7.nb_customers_out AS nb_out,
+	sum(t7.nb_customers_out) over (ORDER BY t7.month_create) AS nb_out_rt,
+	t7.nb_customers_in AS nb_in,
+	sum(t7.nb_customers_in) over (ORDER BY t7.month_create) AS nb_in_rt,	
+	t5.nb_customers + t7.nb_customers_in - t7.nb_customers_out AS nb_customer,
+	sum(t5.nb_customers + t7.nb_customers_in - t7.nb_customers_out) over (ORDER BY t7.month_create) AS nb_customer_rt
+FROM t5 
+LEFT JOIN t7  ON t7.month_create = t5.month_create
+;
 
 --------------------------------------------
 
