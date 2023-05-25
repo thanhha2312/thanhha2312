@@ -292,25 +292,132 @@ WHERE a.consent LIKE '%yes%' AND a.created_at >= '2022-01-01' AND a.nlad_transac
 
 ----------------------------------------------
 
-#16.h
+#16.g
 -- payment
-SELECT 
+WITH t1 AS
+(SELECT 
+	c.id AS customer_id,
 	e.id AS enrollment_id,
-	e.enrollment_id AS enrollment_code,
-	e.upgraded_plan AS plan,
-	f.id AS payment_id,
+	-- e.enrollment_id AS enrollment_code,
+	-- e.upgraded_plan AS plan,
+	f.id AS order_id,
 	f.provider,
-	CASE WHEN f.type = 1 THEN 'withdraw' WHEN f.type = 2 THEN 'refund' ELSE f.type END AS payment_type,
+	-- CASE WHEN f.type = 1 THEN 'withdraw' WHEN f.type = 2 THEN 'refund' ELSE f.type END AS payment_type,
 	f.gross_amount,
-	f.net_amount,
-	f.tax_amount,
-	f.`status` AS payment_status,
-	DATE_FORMAT(f.created_at,"%Y-%m-%d") AS payment_created_date,
+	f.`status` AS order_status,
+	DATE_FORMAT(f.created_at,"%Y-%m-%d") AS order_created_date,
 	d.product_name,
-	d.product_type,
-	d.product_price
+	'payment' AS product_type
 FROM oss_enrollments e
+LEFT JOIN oss_customers c ON c.enrollment_id = e.id
 LEFT JOIN oss_enrollment_payments f ON f.enrollment_id = e.id
 LEFT JOIN oss_payment_details d ON d.enrollment_payment_id = f.id
-WHERE e.upgraded_plan IN (34, 35, 36, 37) AND f.gross_amount >=12
+WHERE e.upgraded_plan IN (34, 35, 36, 37) AND f.gross_amount >=12 AND f.type <> 2 AND d.product_type <> 'Phone' AND d.product_price = 12
+),
+t2 AS 
+(SELECT
+	c.id AS customer_id,
+	c.enrollment_id,
+	-- o.`name` AS order_code,
+	o.id AS order_id,
+	t.provider,
+	t.gross_amount,
+	t.`status` AS order_status,
+	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS order_created_date,
+	d.product_name,
+	-- d.product_type,
+	-- d.product_price
+	'order' AS product_type
+FROM oss_customers c
+LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
+LEFT JOIN oss_customer_orders o ON o.customer_id = c.id
+LEFT JOIN oss_customer_order_transactions t ON t.customer_order_id = o.id
+LEFT JOIN oss_customer_order_transaction_details d ON d.customer_order_transaction_id = t.id
+WHERE e.upgraded_plan IN (34, 35, 36, 37) AND o.type <> 3 AND t.`status` <> 'REFUNDS' AND t.gross_amount >=12 AND d.product_type <> 'Phone'
+),
+
+t3 AS
+(SELECT
+	c.id AS customer_id,
+	c.enrollment_id,
+	-- o.`name` AS order_code,
+	o.id AS order_id,
+	t.provider,
+	t.gross_amount,
+	t.`status` AS order_status,
+	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS order_created_date,
+	-- i.product_variant_id,
+	p.name AS product_name,
+	-- d.product_price
+	'top_up' AS product_type
+FROM oss_customers c
+LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
+LEFT JOIN oss_customer_orders o ON o.customer_id = c.id
+LEFT JOIN oss_customer_order_transactions t ON t.customer_order_id = o.id
+LEFT JOIN oss_customer_order_items i ON i.order_id = o.id
+LEFT JOIN oss_plans p ON p.id = i.product_variant_id
+WHERE e.upgraded_plan IN (34, 35, 36, 37) AND o.type = 3 AND t.`status` <> 'REFUNDS' AND p.id IN (20,22)
+)
+
+
+SELECT * FROM t1 UNION ALL SELECT * FROM t2 UNION ALL SELECT * FROM t3
+
+-----------------------------
+
+#16h
+WITH t1 AS
+(SELECT 
+	c.id AS customer_id,
+	e.id AS enrollment_id,
+	f.id AS order_id,
+	f.provider,
+	f.gross_amount,
+	f.`status` AS order_status,
+	DATE_FORMAT(f.created_at,"%Y-%m-%d") AS order_created_date,
+	'payment' AS product_type
+FROM oss_enrollments e
+LEFT JOIN oss_customers c ON c.enrollment_id = e.id
+LEFT JOIN oss_enrollment_payments f ON f.enrollment_id = e.id
+WHERE f.`status` <> 'REFUNDS' AND f.gross_amount > 0 AND f.type <> 2 AND f.created_at >= '2022-01-01'
+),
+t2 AS
+(SELECT
+	c.id AS customer_id,
+	c.enrollment_id,
+	o.id AS order_id,
+	t.provider,
+	t.gross_amount,
+	t.`status` AS order_status,
+	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS order_created_date,
+	'order' AS product_type
+FROM oss_customers c
+LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
+LEFT JOIN oss_customer_orders o ON o.customer_id = c.id
+LEFT JOIN oss_customer_order_transactions t ON t.customer_order_id = o.id
+WHERE t.`status` <> 'REFUNDS' AND t.created_at >= '2022-01-01' AND t.gross_amount > 0
+ )
+ 
+SELECT * FROM t1 UNION ALL SELECT * FROM t2
+
+---------------------------------------
+#16m
+WITH
+t1 AS 
+(SELECT
+	t.enrollment_id,
+	min(t.nlad_transaction_date) AS min_transaction_date,
+	t.id AS transaction_id
+FROM oss_nlad_transactions t 
+WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'ENROLL' 
+GROUP BY 1
+)
+
+SELECT 
+t.enrollment_id,
+t.id AS transaction_id,
+t.nlad_transaction_date
+FROM oss_nlad_transactions t 
+WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'ENROLL'
+AND t.id NOT IN (SELECT transaction_id  FROM t1)
+
 
