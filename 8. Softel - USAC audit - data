@@ -420,4 +420,78 @@ FROM oss_nlad_transactions t
 WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'ENROLL'
 AND t.id NOT IN (SELECT transaction_id  FROM t1)
 
+----------------------------------------------
+
+#17.a
+WITH t1 AS 
+(SELECT
+	o.enrollment_id,
+	MAX(o.nlad_transaction_date) AS max_transaction_date,
+	o.tribal_benefit_flag
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type = 'TRANSFEROUT' AND o.nlad_transaction_date >= '2022-01-01' 
+GROUP BY 1
+),
+t2 AS
+(SELECT
+	e.id AS enrollment_id,
+	e.enrollment_id AS enrollment_code,
+	e.first_name,
+	e.middle_name,
+	e.last_name,
+	e.address_1,
+	e.email,
+	e.ebb_subscriber_id,
+	c.mdn_active
+FROM oss_enrollments e
+LEFT JOIN oss_customers c ON c.enrollment_id = e.id
+)
+
+SELECT 
+	t1.enrollment_id,
+	t2.first_name,
+	t2.middle_name,
+	t2.last_name,
+	t2.address_1,
+	t2.mdn_active,
+	t2.ebb_subscriber_id,
+	t1.tribal_benefit_flag
+FROM t1 
+LEFT JOIN t2 ON t1.enrollment_id = t2.enrollment_id
+;
+---------------------------------------------------
+
+#17b
+SELECT
+	t.enrollment_id,
+	min(t.nlad_transaction_date) AS first_transaction_date,
+	t.id AS transaction_id
+FROM oss_nlad_transactions t 
+WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'ENROLL' 
+GROUP BY 1
+;
+-----------------------------------------------
+#17c
+SELECT
+	t.enrollment_id,
+	t.nlad_transaction_date,
+	t.id AS transaction_id
+FROM oss_nlad_transactions t 
+WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'TRANSFEROUT' 
+GROUP BY 1
+;
+----------------------------------------------
+#17d
+SELECT
+	t.enrollment_id,
+	t.nlad_transaction_date,
+	t.id AS transaction_id
+FROM oss_nlad_transactions t 
+WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'DEENROLL' 
+GROUP BY 1
+;
+--------------------------------------------
+
+
+
 
