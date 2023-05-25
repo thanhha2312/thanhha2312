@@ -62,14 +62,12 @@ t6 AS
 	t.transaction_type
 FROM oss_nlad_transactions t 
 WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.enrollment_id IS NOT NULL
--- AND t.transaction_type IN ('TRANSFEROUT', 'DEENROLL')
 GROUP BY 1, 2
 ORDER BY 1, 2
 ),
 t7 AS
 (SELECT
 	t6.month_create,
-	-- count(DISTINCT(CASE WHEN t1.transaction_type = 'ENROLL' THEN t1.enrollment_id END)) AS nb_customers_enroll,
 	count(DISTINCT(CASE WHEN t6.transaction_type IN ('DEENROLL', 'TRANSFEROUT') THEN t6.enrollment_id END)) AS nb_customers_out,
 	count(DISTINCT(CASE WHEN t6.transaction_type IN ('TRANSFERIN') THEN t6.enrollment_id END)) AS nb_customers_in
 FROM t6
@@ -366,11 +364,8 @@ WITH t1 AS
 (SELECT 
 	c.id AS customer_id,
 	e.id AS enrollment_id,
-	-- e.enrollment_id AS enrollment_code,
-	-- e.upgraded_plan AS plan,
 	f.id AS order_id,
 	f.provider,
-	-- CASE WHEN f.type = 1 THEN 'withdraw' WHEN f.type = 2 THEN 'refund' ELSE f.type END AS payment_type,
 	f.gross_amount,
 	f.`status` AS order_status,
 	DATE_FORMAT(f.created_at,"%Y-%m-%d") AS order_created_date,
@@ -386,15 +381,12 @@ t2 AS
 (SELECT
 	c.id AS customer_id,
 	c.enrollment_id,
-	-- o.`name` AS order_code,
 	o.id AS order_id,
 	t.provider,
 	t.gross_amount,
 	t.`status` AS order_status,
 	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS order_created_date,
 	d.product_name,
-	-- d.product_type,
-	-- d.product_price
 	'order' AS product_type
 FROM oss_customers c
 LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
@@ -408,15 +400,12 @@ t3 AS
 (SELECT
 	c.id AS customer_id,
 	c.enrollment_id,
-	-- o.`name` AS order_code,
 	o.id AS order_id,
 	t.provider,
 	t.gross_amount,
 	t.`status` AS order_status,
 	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS order_created_date,
-	-- i.product_variant_id,
 	p.name AS product_name,
-	-- d.product_price
 	'top_up' AS product_type
 FROM oss_customers c
 LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
