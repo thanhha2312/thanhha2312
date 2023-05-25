@@ -315,7 +315,7 @@ SELECT
 	a.transfer_type,
 	max(a.created_at) AS latest_consent_date
 FROM t3
-LEFT JOIN oss_transfer_agreements a ON t3.enrollment_id = a.enrollment_id AND a.created_at > t3.nlad_transaction_date AND a.created_at < t3.next_nlad_transaction_date
+LEFT JOIN oss_transfer_agreements a ON t3.enrollment_id = a.enrollment_id AND a.created_at >= t3.nlad_transaction_date AND a.created_at <= t3.next_nlad_transaction_date
 WHERE a.consent = 'YES' AND a.nlad_transaction_id IS NOT NULL AND a.transfer_type = 1
 GROUP BY 1
 ;
