@@ -180,7 +180,7 @@ ORDER BY 1, 5 ASC
 
 -----------------------------------------
 
-# 18
+#18
 WITH t1 AS 
 (SELECT
 	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.id ASC) AS row_no,
@@ -200,7 +200,7 @@ WHERE b.nlad_transaction_date IS NOT NULL
 ORDER BY 1
 )
 
-SELECT * FROM t2 WHERE t2.hours > 0 AND t2.hours < 24
+SELECT * FROM t2 WHERE t2.hours < 24
 
 ---------------------------------------
 
