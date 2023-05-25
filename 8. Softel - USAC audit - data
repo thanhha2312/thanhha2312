@@ -282,14 +282,43 @@ WHERE t2.created_at IS NULL
 ---------------------------------------------
 
 #16.c
-SELECT
- a.enrollment_id,
- a.nlad_transaction_id,
- a.consent,
- DATE_FORMAT(a.created_at, "%Y-%m-%d") AS consent_date
-FROM oss_transfer_agreements a
-WHERE a.consent LIKE '%yes%' AND a.created_at >= '2022-01-01' AND a.nlad_transaction_id IS NOT NULL
+WITH t1 AS 
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.id ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date,
+	o.transaction_type
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type IN ('TRANSFERIN','TRANSFEROUT')  AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t2 AS
+(SELECT 
+	a.enrollment_id, 
+	a.transaction_id, a.nlad_transaction_date, a.transaction_type, 
+	b.transaction_id AS next_transaction_id, b.nlad_transaction_date AS next_nlad_transaction_date, b.transaction_type AS next_transaction_type
+FROM t1 a
+LEFT JOIN t1 b ON a.enrollment_id = b.enrollment_id  AND a.row_no = b.row_no - 1
+WHERE b.nlad_transaction_date IS NOT NULL
+ORDER BY 1
+),
+t3 AS
+(SELECT * 
+FROM t2
+WHERE t2.transaction_type = 'TRANSFEROUT' AND t2.next_transaction_type = 'TRANSFERIN'
+)
 
+SELECT 
+	t3.*,
+	a.exception_code,
+	a.transfer_type,
+	max(a.created_at) AS latest_consent_date
+FROM t3
+LEFT JOIN oss_transfer_agreements a ON t3.enrollment_id = a.enrollment_id AND a.created_at > t3.nlad_transaction_date AND a.created_at < t3.next_nlad_transaction_date
+WHERE a.consent = 'YES' AND a.nlad_transaction_id IS NOT NULL AND a.transfer_type = 1
+GROUP BY 1
+;
 ----------------------------------------------
 
 #16.g
@@ -492,6 +521,52 @@ GROUP BY 1
 ;
 --------------------------------------------
 
+#17g
+-- 259: cancel service
+-- 277: NLAD Transfer out
+-- 535: Formal Complaint
+SELECT 
+	n.customer_id,
+	n.id AS complaint_id,
+	DATE_FORMAT(n.created_at,"%y-%m-%d") AS complaint_date,
+	n.note,
+	n.note_type_id,
+	t.`name` AS type_name,
+	t.notes AS typ_name_description
+FROM oss_customer_notes n 
+LEFT JOIN oss_note_types t ON n.note_type_id = t.id
+WHERE n.note_type_id IN (259, 277, 535) AND n.created_at >='2022-01-01' 
+LIMIT 10
+;
+----------------------------------------------
 
+#17h
+WITH t1 AS 
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.id ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date,
+	o.transaction_type
+FROM oss_nlad_transactions o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type IN ('TRANSFERIN','TRANSFEROUT')  AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t2 AS
+(SELECT 
+	a.enrollment_id, 
+	a.transaction_id, a.nlad_transaction_date, a.transaction_type, 
+	b.transaction_id AS next_transaction_id, b.nlad_transaction_date AS next_nlad_transaction_date, b.transaction_type AS next_transaction_type
+FROM t1 a
+LEFT JOIN t1 b ON a.enrollment_id = b.enrollment_id  AND a.row_no = b.row_no - 1
+WHERE b.nlad_transaction_date IS NOT NULL
+ORDER BY 1
+)
+
+SELECT * 
+FROM t2
+WHERE t2.transaction_type = 'TRANSFEROUT' AND t2.next_transaction_type = 'TRANSFERIN'
+
+-----------------------------------------------------
 
 
