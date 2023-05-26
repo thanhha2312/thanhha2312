@@ -4,12 +4,12 @@ WITH t1 AS
 (SELECT 
 	c.id AS customer_id,
 	e.id AS enrollment_id,
-	e.upgraded_plan,
+	-- e.upgraded_plan,
 	f.id AS order_id,
-	NULL AS order_description,
+	-- NULL AS order_description,
 	f.provider,
 	f.gross_amount,
-	f.`status` AS order_status,
+	-- f.`status` AS order_status,
 	DATE_FORMAT(f.created_at,"%Y-%m-%d") AS order_created_date,
 	d.id AS order_item_id,
 	d.product_name,
@@ -17,8 +17,8 @@ WITH t1 AS
 	d.product_price,
 	CASE 
 		WHEN e.upgraded_plan IN (34, 35, 36, 37) AND d.product_type = 'Plan' AND d.product_price = 12 THEN 'copay'
-		ELSE 'other services' END AS is_copay_topup,
-	'payment' AS service_payment_type
+		ELSE 'other services' END AS service_type,
+	'payment' AS order_type
 FROM oss_enrollments e
 LEFT JOIN oss_customers c ON c.enrollment_id = e.id
 LEFT JOIN oss_enrollment_payments f ON f.enrollment_id = e.id
@@ -30,12 +30,12 @@ t2 AS
 (SELECT
 	c.id AS customer_id,
 	c.enrollment_id,
-	e.upgraded_plan,
+	-- e.upgraded_plan,
 	o.id AS order_id,
-	o.name AS order_description,
+	-- o.name AS order_description,
 	t.provider,
 	t.gross_amount,
-	t.`status` AS order_status,
+	-- t.`status` AS order_status,
 	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS order_created_date,
 	d.id AS order_item_id,
 	d.product_name,
@@ -43,8 +43,8 @@ t2 AS
 	d.product_price,
 	CASE 
 		WHEN e.upgraded_plan IN (34, 35, 36, 37) AND d.product_type = 'Plan' AND d.product_price = 12 THEN 'copay'
-		ELSE 'other services' END AS is_copay_topup,
-	'order' AS service_payment_type
+		ELSE 'other services' END AS service_type,
+	'order' AS order_type
 FROM oss_customers c
 LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
 LEFT JOIN oss_customer_orders o ON o.customer_id = c.id
@@ -57,12 +57,12 @@ t3 AS
 (SELECT
 	c.id AS customer_id,
 	c.enrollment_id,
-	e.upgraded_plan,
+	-- e.upgraded_plan,
 	o.id AS order_id,
-	o.name AS order_description,
+	-- o.name AS order_description,
 	t.provider,
 	t.gross_amount,
-	t.`status` AS order_status,
+	-- t.`status` AS order_status,
 	DATE_FORMAT(t.created_at,"%Y-%m-%d") AS order_created_date,
 	i.id AS order_item_id,
 	p.name AS product_name,
@@ -70,8 +70,8 @@ t3 AS
 	0 AS product_price,
 	CASE 
 		WHEN p.id IN (20,22) THEN 'top_up'
-		ELSE 'other services' END AS is_copay_topup,
-	'top_up' AS service_payment_type
+		ELSE 'other services' END AS service_type,
+	'top_up' AS order_type
 FROM oss_customers c
 LEFT JOIN oss_enrollments e ON e.id = c.enrollment_id
 LEFT JOIN oss_customer_orders o ON o.customer_id = c.id
@@ -91,8 +91,8 @@ WITH t1 AS
 	o.etc_general_use,
 	o.nlad_transaction_date,
 	o.transaction_type
-FROM oss_nlad_transactions o 
-WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type IN ('TRANSFERIN','TRANSFEROUT')  AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+FROM audit_nlad_transaction_origin o 
+WHERE o.enrollment_type IN ('EBB', 'ACP') AND o.transaction_type IN ('TRANSFERIN','TRANSFEROUT')  AND o.nlad_transaction_date >= '2022-01-01' LIMIT 10 -- AND o.enrollment_id IS NOT NULL 
 ),
 t2 AS
 (SELECT 
@@ -115,6 +115,7 @@ t4 AS
 	a.exception_code,
 	a.transfer_type,
 	max(a.created_at) AS consent_date,
+	a.id AS consent_id,
 	a.source 
 FROM t3
 LEFT JOIN oss_transfer_agreements a ON t3.enrollment_id = a.enrollment_id AND DATE_FORMAT(a.created_at,"%y-%m-%d") >= t3.nlad_transaction_date AND DATE_FORMAT(a.created_at,"%y-%m-%d") <= t3.next_nlad_transaction_date
@@ -125,7 +126,8 @@ ORDER BY 1
 t5 AS
 (SELECT 
 	t4.*,
-	max(n.created_at) AS notification_date
+	max(n.created_at) AS notification_date,
+	n.id AS notification_id
 FROM t4
 LEFT JOIN oss_notification_transactions n ON t4.enrollment_id = n.enrollment_id AND DATE_FORMAT(n.created_at,"%y-%m-%d") >= t4.nlad_transaction_date AND n.created_at <= t4.consent_date
 GROUP BY 1, 2
@@ -137,13 +139,7 @@ t6 AS
 	t.id,
 	t.enrollment_id,
 	t.nlad_transaction_date,
-	t.enrollment_type,
-	t.transaction_type,
-	t.transaction_effective_date,
-	t.etc_general_use,
-	t.subscriberid,
-	t.tribal_benefit_flag,
-	t.transfer_exception
+	t.transaction_type
 FROM oss_nlad_transactions t 
 WHERE t.enrollment_type IN ('EBB', 'ACP') AND t.nlad_transaction_date >= '2022-01-01' AND t.enrollment_id IS NOT NULL 
 ),
@@ -159,15 +155,17 @@ GROUP BY 1
 )
 
 SELECT
-	t6.*,
-	CASE WHEN t6.id = t7.first_enroll_transaction_id AND t6.transaction_type = 'ENROLL' THEN 'first enroll'
-			 WHEN t6.id <> t7.first_enroll_transaction_id AND t6.transaction_type = 'ENROLL' THEN 're-enroll'
-			 ELSE 'others' END AS first_reenroll_status,
-  CASE WHEN t6.id = t5.next_transaction_id THEN 'transferin-back'
-			 ELSE 'others' END AS is_transferin_back,
-  t5.consent_date,
-	t5.source,
-	t5.notification_date
+	t6.id,
+	t6.enrollment_id,
+	CASE WHEN t6.id = t7.first_enroll_transaction_id THEN t6.id
+			 ELSE NULL END AS first_nlad_transaction_id,
+  CASE WHEN t6.id = t5.next_transaction_id THEN t6.id
+			 ELSE NULL END AS transferin_transaction_id,
+  -- t5.consent_date,
+	t5.consent_id AS transfer_agreement_id,
+	-- t5.source,
+	-- t5.notification_date,
+	t5.notification_id
 FROM t6
 LEFT JOIN t7 ON t7.first_enroll_transaction_id = t6.id 
 LEFT JOIN t5 ON t5.next_transaction_id = t6.id 
