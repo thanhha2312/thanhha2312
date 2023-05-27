@@ -51,7 +51,7 @@ WITH trans AS
 	o.id,
 	o.nlad_transaction_date,
 	o.tribal_benefit_flag
-FROM oss_nlad_transactions o 
+FROM audit_nlad_transaction_origin o 
 WHERE 
 o.transaction_type = 'TRANSFERIN' 
 AND o.nlad_transaction_date >= '2022-01-01' 
