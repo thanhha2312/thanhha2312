@@ -1,0 +1,246 @@
+# 16.b.	the consumer's name, physical address, email address(es), telephone number(s), subscriber ID, and whether tribal lands enhancement applied,
+SELECT 
+	o.enrollment_id,
+	o.id,
+	o.nlad_transaction_date,
+	o.first_name,
+	o.middle_name,
+	o.last_name,
+	o.street_address,
+	o.city,
+	o.consumer_email,
+	CASE WHEN o.telephone_number <> 0 THEN o.telephone_number 
+	     WHEN o.telephone_number = 0 AND c.mdn_active IS NOT NULL THEN c.mdn_active
+			 WHEN o.telephone_number = 0 AND c.mdn_active IS NULL THEN o.telephone_number 
+			 ELSE NULL
+			 END AS telephone_number,
+	o.subscriberid,
+	o.tribal_benefit_flag
+FROM audit_nlad_transaction_origin o 
+LEFT JOIN oss_customers c ON c.enrollment_id = o.enrollment_id 
+WHERE 
+o.transaction_type = 'TRANSFERIN' 
+AND o.nlad_transaction_date >= '2022-01-01' 
+AND o.enrollment_id IS NOT NULL
+;
+
+#16.e
+SELECT
+	o.enrollment_id,
+	o.id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m") AS nlad_transaction_month
+FROM audit_nlad_transaction_origin o 
+WHERE
+o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 2 ASC;
+
+#16i
+SELECT
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM audit_nlad_transaction_origin o 
+WHERE 
+o.transaction_type = 'DEENROLL' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 2 ASC
+;
+
+#16j
+SELECT
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM audit_nlad_transaction_origin o 
+WHERE 
+o.transaction_type = 'TRANSFEROUT' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 2 ASC
+;
+#16k
+SELECT DISTINCT
+	o.enrollment_id,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m") AS nlad_transaction_month,
+	COUNT(DISTINCT o.id) AS nb_times_in
+FROM audit_nlad_transaction_origin o 
+WHERE
+o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+GROUP BY 1,2
+ORDER BY 1, 2 ASC
+;
+
+SELECT
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m") AS nlad_transaction_month,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM audit_nlad_transaction_origin o 
+WHERE  
+o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+ORDER BY 1, 5 ASC
+;
+
+#16l
+SELECT DISTINCT
+	o.enrollment_id,
+	COUNT(DISTINCT o.id) AS nb_times_total
+FROM audit_nlad_transaction_origin o 
+WHERE 
+o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL
+GROUP BY 1
+ORDER BY 1 ASC
+;
+SELECT
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m-%d") AS nlad_transaction_date
+FROM audit_nlad_transaction_origin o 
+WHERE 
+o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+ORDER BY 1, 4 ASC
+;
+
+#16m
+WITH
+t1 AS 
+(SELECT
+	t.enrollment_id,
+	t.id AS transaction_id,
+	t.transaction_type,
+	t.etc_general_use,
+	t.nlad_transaction_date,
+	ROW_NUMBER() over (PARTITION by t.enrollment_id ORDER BY t.id ASC) AS row_num
+FROM audit_nlad_transaction_origin t 
+WHERE  
+t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'ENROLL' AND t.enrollment_id IS NOT NULL
+)
+
+SELECT 
+	t1.enrollment_id,
+	t1.transaction_id,
+	t1.transaction_type,
+	t1.etc_general_use,
+	t1.nlad_transaction_date
+FROM t1 
+WHERE t1.row_num <> 1
+;
+# 17a
+SELECT 
+	o.enrollment_id,
+	o.id,
+	o.nlad_transaction_date,
+	o.first_name,
+	o.middle_name,
+	o.last_name,
+	o.street_address,
+	o.city,
+	o.consumer_email,
+	CASE WHEN o.telephone_number <> 0 THEN o.telephone_number 
+	     WHEN o.telephone_number = 0 AND c.mdn_active IS NOT NULL THEN c.mdn_active
+			 WHEN o.telephone_number = 0 AND c.mdn_active IS NULL THEN o.telephone_number 
+			 ELSE NULL
+			 END AS telephone_number,
+	o.subscriberid,
+	o.tribal_benefit_flag
+FROM audit_nlad_transaction_origin o 
+LEFT JOIN oss_customers c ON c.enrollment_id = o.enrollment_id 
+WHERE 
+o.transaction_type = 'TRANSFEROUT' 
+AND o.nlad_transaction_date >= '2022-01-01' 
+AND o.enrollment_id IS NOT NULL
+;
+#17b
+WITH
+t1 AS 
+(SELECT
+	t.enrollment_id,
+	t.id AS transaction_id,
+	t.transaction_type,
+	t.etc_general_use,
+	t.nlad_transaction_date,
+	ROW_NUMBER() over (PARTITION by t.enrollment_id ORDER BY t.id ASC) AS row_num
+FROM audit_nlad_transaction_origin t 
+WHERE  
+t.nlad_transaction_date >= '2022-01-01' AND t.transaction_type = 'ENROLL' AND t.enrollment_id IS NOT NULL 
+)
+
+SELECT 
+	t1.enrollment_id,
+	t1.transaction_id,
+	t1.transaction_type,
+	t1.etc_general_use,
+	t1.nlad_transaction_date
+FROM t1 
+WHERE t1.row_num = 1
+;
+#17h
+WITH t1 AS 
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.id ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date,
+	o.transaction_type
+FROM audit_nlad_transaction_origin o 
+WHERE 
+o.transaction_type IN ('TRANSFERIN','TRANSFEROUT')  AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t2 AS
+(SELECT 
+	a.enrollment_id, 
+	a.transaction_id, a.nlad_transaction_date, a.transaction_type, 
+	b.transaction_id AS next_transaction_id, b.nlad_transaction_date AS next_nlad_transaction_date, b.transaction_type AS next_transaction_type
+FROM t1 a
+LEFT JOIN t1 b ON a.enrollment_id = b.enrollment_id  AND a.row_no = b.row_no - 1
+WHERE b.nlad_transaction_date IS NOT NULL
+ORDER BY 1
+),
+
+t3 AS
+(SELECT * 
+FROM t2
+WHERE t2.transaction_type = 'TRANSFEROUT' AND t2.next_transaction_type = 'TRANSFERIN'
+)
+
+SELECT
+	t3.enrollment_id,
+	t3.next_transaction_id AS transaction_id,
+	t3.next_transaction_type AS transfer_type,
+	t3.next_nlad_transaction_date AS nlad_transaction_date
+FROM t3
+;
+#18
+WITH t1 AS 
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.id ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date
+FROM audit_nlad_transaction_origin o 
+WHERE  
+o.transaction_type = 'TRANSFERIN' AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t2 AS
+(SELECT 
+	a.enrollment_id, a.transaction_id, a.nlad_transaction_date, b.transaction_id AS next_transaction_id, b.nlad_transaction_date AS next_nlad_transaction_date, 
+  TIMESTAMPDIFF(HOUR, a.nlad_transaction_date, b.nlad_transaction_date) AS hours
+FROM t1 a
+LEFT JOIN t1 b ON a.enrollment_id = b.enrollment_id  AND a.row_no = b.row_no - 1
+WHERE b.nlad_transaction_date IS NOT NULL
+ORDER BY 1
+)
+
+SELECT * FROM t2 WHERE t2.hours < 24
+
+
+
+
+
+
+
