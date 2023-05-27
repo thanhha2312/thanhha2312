@@ -45,13 +45,13 @@ FROM t7
 
 --------------------------------------------
 
-#16.b
 WITH trans AS 
-(SELECT
+(SELECT 
 	o.enrollment_id,
+	o.id,
 	o.nlad_transaction_date,
 	o.tribal_benefit_flag
-FROM audit_nlad_transaction_origin o 
+FROM oss_nlad_transactions o 
 WHERE 
 o.transaction_type = 'TRANSFERIN' 
 AND o.nlad_transaction_date >= '2022-01-01' 
