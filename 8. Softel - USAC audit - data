@@ -44,7 +44,7 @@ FROM t7
 ;
 
 --------------------------------------------
-
+# 16.b
 WITH trans AS 
 (SELECT 
 	o.enrollment_id,
