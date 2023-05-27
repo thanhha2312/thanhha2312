@@ -46,20 +46,19 @@ FROM t7
 --------------------------------------------
 
 #16.b
-WITH t1 AS 
+WITH trans AS 
 (SELECT
 	o.enrollment_id,
-	MAX(o.nlad_transaction_date) AS max_transaction_date,
+	o.nlad_transaction_date,
 	o.tribal_benefit_flag
 FROM audit_nlad_transaction_origin o 
 WHERE 
--- o.enrollment_type IN ('EBB', 'ACP') AND 
 o.transaction_type = 'TRANSFERIN' 
 AND o.nlad_transaction_date >= '2022-01-01' 
 AND o.enrollment_id IS NOT NULL
-GROUP BY 1
 ),
-t2 AS
+
+prof AS
 (SELECT
 	e.id AS enrollment_id,
 	e.enrollment_id AS enrollment_code,
@@ -75,16 +74,18 @@ LEFT JOIN oss_customers c ON c.enrollment_id = e.id
 )
 
 SELECT 
-	t1.enrollment_id,
-	t2.first_name,
-	t2.middle_name,
-	t2.last_name,
-	t2.address_1,
-	t2.mdn_active,
-	t2.ebb_subscriber_id,
-	t1.tribal_benefit_flag
-FROM t1 
-LEFT JOIN t2 ON t1.enrollment_id = t2.enrollment_id
+	trans.enrollment_id,
+	trans.nlad_transaction_date,
+	trans.tribal_benefit_flag,
+	prof.first_name,
+	prof.middle_name,
+	prof.last_name,
+	prof.address_1,
+	prof.mdn_active,
+	prof.ebb_subscriber_id
+FROM trans 
+LEFT JOIN prof ON trans.enrollment_id = prof.enrollment_id
+ORDER BY 1, 2 ASC
 ;
 -------------------------------------------
 # 16.c, d
