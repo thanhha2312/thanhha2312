@@ -1,0 +1,60 @@
+WITH t10 AS
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.nlad_transaction_date, o.id ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date,
+	o.transaction_type
+FROM audit_nlad_transaction_origin_final o 
+WHERE 
+o.transaction_type IN ('TRANSFERIN','TRANSFEROUT', 'DEENROLL', 'ENROLL')  AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t11 AS
+(SELECT 
+	a.enrollment_id, 
+	a.transaction_id, a.nlad_transaction_date, a.transaction_type, 
+	b.transaction_id AS next_transaction_id, 
+	b.nlad_transaction_date AS next_nlad_transaction_date, 
+	b.transaction_type AS next_transaction_type
+FROM t10 a
+LEFT JOIN t10 b ON a.enrollment_id = b.enrollment_id  AND a.row_no + 1 = b.row_no
+-- WHERE b.nlad_transaction_date IS NOT NULL
+ORDER BY 1
+),
+t12 AS
+(SELECT 
+	t11.*,
+	CASE WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'out-in'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'first transferout'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type IS NULL  THEN 'others'
+			 
+		   WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'deenroll-in'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'DEENROLL' THEN 'first deenroll'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type IS NULL  THEN 'others'
+			 
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFERIN' AND t11.nlad_transaction_date = t11.next_nlad_transaction_date THEN 'in-in 24h'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFERIN' AND t11.nlad_transaction_date <> t11.next_nlad_transaction_date THEN 'in-in'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'TRANSFERIN' THEN 'first transferin audit'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type IS NULL THEN 'others'
+			 
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'enroll-in'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'ENROLL' THEN 'first enroll'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type IS NULL THEN 'others'
+			 ELSE NULL END AS type
+FROM t11
+)
+
+SELECT * FROM t12 WHERE t12.type IS NULL
