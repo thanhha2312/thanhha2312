@@ -1,0 +1,59 @@
+WITH
+t2 AS
+(SELECT 
+	t1.enrollment_id,
+	t1.nlad_transaction_date,
+	t1.id AS transaction_id,
+	t1.transaction_type,
+	ROW_NUMBER() over (PARTITION by t1.enrollment_id, t1.transaction_type ORDER BY t1.rank_by_enrollment ASC) AS row_num
+FROM audit_nlad_transaction_origin_final t1
+WHERE 
+t1.transaction_type IN ('ENROLL','TRANSFERIN') AND t1.nlad_transaction_date >= '2022-01-01' AND t1.enrollment_id IS NOT NULL
+),
+c AS
+(SELECT
+	t2.enrollment_id,
+	GROUP_CONCAT(IF(t2.transaction_type = 'ENROLL' AND t2.row_num = 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS first_enroll_date,
+	GROUP_CONCAT(IF(t2.transaction_type = 'ENROLL' AND t2.row_num <> 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS re_enroll_date,
+	GROUP_CONCAT(IF(t2.transaction_type = 'TRANSFERIN' AND t2.row_num = 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS first_transferin_date
+FROM t2
+GROUP BY 1
+),
+d AS
+(SELECT
+ c.enrollment_id,
+ GROUP_CONCAT(IF(c.enrollment_id = c.enrollment_id AND c.transaction_type = 'ENROLL', c.nlad_transaction_date,NULL)) AS first_enroll,
+ GROUP_CONCAT(IF(c.enrollment_id = c.enrollment_id AND c.transaction_type = 'TRANSFERIN', c.nlad_transaction_date,NULL)) AS first_transferin
+FROM
+(SELECT 
+	a.etc_general_use,
+	a.subscriberid,
+	a.nlad_transaction_date,
+	a.transaction_type,
+	b.enrollment_id,
+	ROW_NUMBER() over (PARTITION by b.enrollment_id, a.transaction_type ORDER BY a.nlad_transaction_date ASC) AS row_num
+FROM audit_nlad_transaction_origin_2021 a
+LEFT JOIN audit_nlad_transaction_origin_final b ON a.etc_general_use = b.etc_general_use AND a.subscriberid = b.subscriberid
+WHERE b.enrollment_id IS NOT NULL AND a.transaction_type IN ('TRANSFERIN', 'ENROLL')  -- AND b.enrollment_id IN ('67853','218617','216743')
+) c
+WHERE c.row_num = 1
+GROUP BY 1
+),
+e AS
+(SELECT
+	c.enrollment_id,
+	CASE WHEN d.first_enroll IS NOT NULL THEN d.first_enroll ELSE c.first_enroll_date END AS first_enroll_date,
+	CASE WHEN d.first_transferin IS NOT NULL THEN d.first_transferin ELSE c.first_transferin_date END AS first_transferin_date,
+	CASE WHEN d.first_enroll IS NOT NULL AND c.first_enroll_date IS NOT NULL THEN c.first_enroll_date ELSE NULL END AS re_enroll_date_2,
+	c.re_enroll_date
+FROM c 
+LEFT JOIN d ON c.enrollment_id = d.enrollment_id
+)
+
+SELECT
+	e.enrollment_id,
+	GROUP_CONCAT(IF(e.enrollment_id = e.enrollment_id, e.first_enroll_date,NULL)) AS first_enroll_date,
+	GROUP_CONCAT(IF(e.enrollment_id = e.enrollment_id, e.first_transferin_date,NULL)) AS first_transferin_date,
+	CONCAT(e.re_enroll_date_2,',',re_enroll_date) AS re_enroll_date
+FROM e
+GROUP BY 1
