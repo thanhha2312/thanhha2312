@@ -1,0 +1,319 @@
+WITH t1 AS
+(SELECT
+	o.enrollment_id,
+	o.etc_general_use,
+	o.id AS transaction_id,
+	o.first_name,
+	o.middle_name,
+	o.last_name,
+	o.street_address,
+	o.city,
+	o.state,
+	o.zip,
+	o.consumer_email,
+	e.email AS enrollment_email,
+	c.mdn_active,
+	CASE WHEN o.telephone_number <> 0 THEN o.telephone_number 
+	     WHEN o.telephone_number = 0 AND c.mdn_active IS NOT NULL OR c.mdn_active <> 0 THEN c.mdn_active
+			 WHEN o.telephone_number IS NULL AND c.mdn_active IS NOT NULL OR c.mdn_active <> 0 THEN c.mdn_active
+			 WHEN o.telephone_number = 0 AND c.mdn_active IS NULL OR c.mdn_active =0 THEN NULL 
+			 ELSE NULL
+			 END AS telephone_number,
+	 o.subscriberid,
+	o.tribal_benefit_flag,
+	o.nlad_transaction_date AS transfer_date,
+	DATE_FORMAT(o.nlad_transaction_date,"%Y-%m") AS nlad_transaction_month,
+	o.loi_consent_id,
+	o.loi_te_consent_id
+FROM audit_nlad_transaction_origin_final o
+LEFT JOIN oss_customers c ON c.enrollment_id = o.enrollment_id
+LEFT JOIN oss_enrollments e ON e.id = o.enrollment_id
+WHERE
+o.transaction_type = 'TRANSFERIN'
+AND o.nlad_transaction_date >= '2022-01-01' 
+AND o.enrollment_id IS NOT NULL
+),
+
+
+t2 AS
+(SELECT 
+	t1.enrollment_id,
+	t1.nlad_transaction_date,
+	t1.id AS transaction_id,
+	t1.transaction_type,
+	ROW_NUMBER() over (PARTITION by t1.enrollment_id, t1.transaction_type ORDER BY t1.rank_by_enrollment ASC) AS row_num
+FROM audit_nlad_transaction_origin_final t1
+WHERE 
+t1.transaction_type IN ('ENROLL','TRANSFERIN') AND t1.nlad_transaction_date >= '2022-01-01' AND t1.enrollment_id IS NOT NULL
+),
+c AS
+(SELECT
+	t2.enrollment_id,
+	GROUP_CONCAT(IF(t2.transaction_type = 'ENROLL' AND t2.row_num = 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS first_enroll_date,
+	GROUP_CONCAT(IF(t2.transaction_type = 'ENROLL' AND t2.row_num <> 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS re_enroll_date,
+	GROUP_CONCAT(IF(t2.transaction_type = 'TRANSFERIN' AND t2.row_num = 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS first_transferin_date
+FROM t2
+GROUP BY 1
+),
+d AS
+(SELECT
+ c.enrollment_id,
+ GROUP_CONCAT(IF(c.enrollment_id = c.enrollment_id AND c.transaction_type = 'ENROLL', c.nlad_transaction_date,NULL)) AS first_enroll,
+ GROUP_CONCAT(IF(c.enrollment_id = c.enrollment_id AND c.transaction_type = 'TRANSFERIN', c.nlad_transaction_date,NULL)) AS first_transferin
+FROM
+(SELECT 
+	a.etc_general_use,
+	a.subscriberid,
+	a.nlad_transaction_date,
+	a.transaction_type,
+	b.enrollment_id,
+	ROW_NUMBER() over (PARTITION by b.enrollment_id, a.transaction_type ORDER BY a.nlad_transaction_date ASC) AS row_num
+FROM audit_nlad_transaction_origin_2021 a
+LEFT JOIN audit_nlad_transaction_origin_final b ON a.etc_general_use = b.etc_general_use AND a.subscriberid = b.subscriberid
+WHERE b.enrollment_id IS NOT NULL AND a.transaction_type IN ('TRANSFERIN', 'ENROLL')  -- AND b.enrollment_id IN ('67853','218617','216743')
+) c
+WHERE c.row_num = 1
+GROUP BY 1
+),
+e AS
+(SELECT
+	c.enrollment_id,
+	CASE WHEN d.first_enroll IS NOT NULL THEN d.first_enroll ELSE c.first_enroll_date END AS first_enroll_date,
+	CASE WHEN d.first_transferin IS NOT NULL THEN d.first_transferin ELSE c.first_transferin_date END AS first_transferin_date,
+	CASE WHEN d.first_enroll IS NOT NULL AND c.first_enroll_date IS NOT NULL THEN c.first_enroll_date ELSE NULL END AS re_enroll_date_2,
+	c.re_enroll_date,
+	c.first_transferin_date AS first_transferin_audit
+FROM c 
+LEFT JOIN d ON c.enrollment_id = d.enrollment_id
+),
+
+t3 AS
+(SELECT
+	e.enrollment_id,
+	GROUP_CONCAT(IF(e.enrollment_id = e.enrollment_id, e.first_enroll_date,NULL)) AS first_enroll_date,
+	GROUP_CONCAT(IF(e.enrollment_id = e.enrollment_id, e.first_transferin_date,NULL)) AS first_transferin_date,
+	CONCAT(e.re_enroll_date_2,',',re_enroll_date) AS re_enroll_date,
+	e.first_transferin_audit
+FROM e
+GROUP BY 1
+),
+
+
+t4 AS
+(SELECT
+	t1.enrollment_id,
+	t1.nlad_transaction_month,
+	count(DISTINCT t1.transaction_id) AS nb_transferin_by_month
+FROM t1 
+GROUP BY 1, 2
+),
+
+t5 AS 
+(SELECT
+	t1.enrollment_id,
+	count(DISTINCT t1.transaction_id) AS nb_transferin_total
+FROM t1 
+GROUP BY 1
+),
+
+t6 AS
+(SELECT 
+	t1.enrollment_id,
+	t1.nlad_transaction_date,
+	t1.id AS transaction_id
+FROM audit_nlad_transaction_origin_final t1
+WHERE 
+t1.transaction_type = 'DEENROLL' AND t1.nlad_transaction_date >= '2022-01-01' AND t1.enrollment_id IS NOT NULL
+),
+t7 AS
+(SELECT
+	t6.enrollment_id,
+	GROUP_CONCAT(IF(t6.enrollment_id = t6.enrollment_id, t6.nlad_transaction_date, null)) AS de_enroll_date
+FROM t6
+GROUP BY 1
+),
+t8 AS
+(SELECT 
+	c.id,
+	NULL AS exception_code,
+	c.consent_date,
+	c.notice_send_date,
+	c.notice_method_of_delivery,
+	c.notice_address,
+	c.nlad_transaction_transfer_in_id
+FROM oss_loi_nlad_consents c
+),
+t9 AS
+(SELECT
+	c.id,
+	c.exception_code,
+	c.consent_date,
+	c.notice_send_date,
+	c.notice_method_of_delivery,
+	c.notice_address,
+	c.nlad_transaction_transfer_in_id
+FROM oss_loi_transfer_agreements c
+),
+
+t10 AS
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.nlad_transaction_date, o.id ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date,
+	o.transaction_type
+FROM audit_nlad_transaction_origin_final o 
+WHERE 
+o.transaction_type IN ('TRANSFERIN','TRANSFEROUT', 'DEENROLL', 'ENROLL')  AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t11 AS
+(SELECT 
+	a.enrollment_id, 
+	a.transaction_id, a.nlad_transaction_date, a.transaction_type, 
+	b.transaction_id AS next_transaction_id, 
+	b.nlad_transaction_date AS next_nlad_transaction_date, 
+	b.transaction_type AS next_transaction_type
+FROM t10 a
+LEFT JOIN t10 b ON a.enrollment_id = b.enrollment_id  AND a.row_no + 1 = b.row_no
+-- WHERE b.nlad_transaction_date IS NOT NULL
+ORDER BY 1
+),
+t12 AS
+(SELECT 
+	t11.*,
+	CASE WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'out-in'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'first transferout'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type IS NULL  THEN 'others'
+			 
+		   WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'deenroll-in'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'DEENROLL' THEN 'first deenroll'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type IS NULL  THEN 'others'
+			 
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFERIN' AND t11.nlad_transaction_date = t11.next_nlad_transaction_date THEN 'in-in 24h'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFERIN' AND t11.nlad_transaction_date <> t11.next_nlad_transaction_date THEN 'in-in'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'TRANSFERIN' THEN 'first transferin audit'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type IS NULL THEN 'others'
+			 
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'enroll-in'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'others'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'ENROLL' THEN 'others'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'DEENROLL' THEN 'others'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'ENROLL' THEN 'first enroll'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type IS NULL THEN 'others'
+			 ELSE NULL END AS type
+FROM t11
+),
+
+t13 AS
+(SELECT
+	t1.nlad_transaction_month,
+	t1.transfer_date,
+	t1.enrollment_id,
+	t1.etc_general_use,
+	t1.transaction_id,
+	t12.transaction_id AS transaction_id_before,
+	t12.transaction_type AS transaction_type_before,
+	t12.nlad_transaction_date AS transaction_date_before,
+	t3.first_enroll_date,
+	t3.first_transferin_date,
+	CASE WHEN t12.type IS NOT NULL THEN t12.type 
+			 WHEN t12.type IS NULL AND t3.first_transferin_audit IS NOT NULL THEN 'first transferin audit'
+       ELSE NULL END AS transferin_type,
+	t3.re_enroll_date,
+	t7.de_enroll_date,
+	CASE WHEN t1.transfer_date < '2022-04-19' THEN t8.exception_code WHEN t1.transfer_date >= '2022-04-19' THEN t9.exception_code ELSE NULL END AS exception_code,
+	CASE WHEN t1.transfer_date < '2022-04-19' THEN t8.consent_date WHEN t1.transfer_date >= '2022-04-19' THEN t9.consent_date ELSE NULL END AS consent_date,
+	CASE WHEN t1.transfer_date < '2022-04-19' THEN t8.notice_send_date WHEN t1.transfer_date >= '2022-04-19' THEN t9.notice_send_date ELSE NULL END AS notice_send_date,
+	CASE WHEN t1.transfer_date < '2022-04-19' THEN t8.notice_method_of_delivery WHEN t1.transfer_date >= '2022-04-19' THEN t9.notice_method_of_delivery ELSE NULL END AS notice_method_of_delivery,
+	CASE WHEN t1.transfer_date < '2022-04-19' 
+                        THEN if(t8.notice_method_of_delivery = 'sms', 
+                                            COALESCE(t1.telephone_number, t8.notice_address) , 
+                                            COALESCE(t1.consumer_email, t8.notice_address)) 
+                WHEN t1.transfer_date >= '2022-04-19' 
+                        THEN if(t9.notice_method_of_delivery = 'sms', 
+                                            COALESCE(t1.telephone_number, t9.notice_address) , 
+                                            COALESCE(t1.consumer_email, t9.notice_address))
+                ELSE NULL END AS notice_address,
+	-- t1.enrollment_id,
+	CASE WHEN t1.first_name <> '0' THEN t1.first_name ELSE NULL END AS first_name,
+	CASE WHEN t1.middle_name <> '0' THEN t1.middle_name ELSE NULL END AS middle_name,
+	CASE WHEN t1.last_name <> '0' THEN t1.last_name ELSE NULL END AS last_name,
+	CASE WHEN t1.street_address <> '0' THEN t1.street_address ELSE NULL END AS street_address,
+	CASE WHEN t1.city <> '0' THEN t1.city ELSE NULL END AS city,
+	CASE WHEN t1.state  <> '0' THEN t1.state ELSE NULL END AS state,
+	t1.zip,
+	CASE WHEN t1.consumer_email <> '0' THEN t1.consumer_email ELSE NULL END AS consumer_email,
+	t1.enrollment_email,
+	t1.telephone_number,
+	t1.mdn_active,
+	t1.subscriberid,
+	t1.tribal_benefit_flag,
+	t4.nb_transferin_by_month AS transferin_count_by_month,
+	t5.nb_transferin_total AS transferin_count_total
+FROM t1
+LEFT JOIN t3 ON t3.enrollment_id = t1.enrollment_id
+LEFT JOIN t4 ON t4.enrollment_id = t1.enrollment_id  AND t4.nlad_transaction_month = t1.nlad_transaction_month
+LEFT JOIN t5 ON t5.enrollment_id = t1.enrollment_id
+LEFT JOIN t7 ON t7.enrollment_id = t1.enrollment_id 
+LEFT JOIN t8 ON t8.nlad_transaction_transfer_in_id = t1.transaction_id AND t1.transfer_date < '2022-04-19'
+LEFT JOIN t9 ON t9.nlad_transaction_transfer_in_id = t1.transaction_id AND t1.transfer_date >= '2022-04-19'
+LEFT JOIN t12 ON t12.next_transaction_id = t1.transaction_id
+ORDER BY t1.nlad_transaction_month, t1.transfer_date, t1.enrollment_id ASC
+)
+
+
+SELECT
+	t13.enrollment_id,
+	t13.etc_general_use,
+	t13.transaction_id,
+	t13.transfer_date,
+	t13.transaction_id_before,
+	t13.transaction_type_before,
+	t13.transaction_date_before,
+	t13.transferin_type,
+	t13.notice_send_date,
+	t13.notice_method_of_delivery,
+	t13.notice_address,
+	t13.exception_code,
+	t13.consent_date,
+	t13.consumer_email,
+	t13.enrollment_email,
+	t13.telephone_number,
+	t13.mdn_active,
+	
+	DATEDIFF(t13.notice_send_date,t13.transaction_date_before) AS var_transferout_notice,
+	CASE WHEN DATEDIFF(t13.notice_send_date,t13.transaction_date_before) < 0 THEN 'false notice'
+	     WHEN DATEDIFF(t13.notice_send_date,t13.transaction_date_before) >= 0 THEN 'true notice'
+			 WHEN t13.notice_send_date IS NULL AND t13.transaction_date_before IS NOT NULL THEN 'missing notice'
+			 WHEN t13.notice_send_date IS NOT NULL AND t13.transaction_date_before IS NULL THEN 'error notice'
+			 ELSE NULL END AS transferout_notice_status,
+	
+	DATEDIFF(t13.consent_date,t13.notice_send_date) AS var_notice_consent,		 
+  CASE WHEN DATEDIFF(t13.consent_date,t13.notice_send_date) < 0 THEN 'false consent'
+	     WHEN DATEDIFF(t13.consent_date,t13.notice_send_date) >= 0 AND DATEDIFF(t13.consent_date,t13.notice_send_date) <= 30 THEN 'in limit consent'
+			 WHEN DATEDIFF(t13.consent_date,t13.notice_send_date) >30 THEN 'out limit consent'
+			 WHEN t13.consent_date IS NULL AND t13.notice_send_date IS NOT NULL THEN 'missing consent'
+			 WHEN t13.consent_date IS NOT NULL AND t13.notice_send_date IS NULL THEN 'error consent'
+			 ELSE NULL END AS notice_consent_status,
+
+  DATEDIFF(t13.transfer_date,t13.consent_date) AS var_consent_transfer,		 
+  CASE WHEN DATEDIFF(t13.transfer_date,t13.consent_date) < 0 THEN 'false transfer'
+	     WHEN DATEDIFF(t13.transfer_date,t13.consent_date) >= 0 AND DATEDIFF(t13.transfer_date,t13.consent_date) <= 30 THEN 'in limit transfer'
+			 WHEN DATEDIFF(t13.transfer_date,t13.consent_date) >30 THEN 'out limit transfer'
+			 WHEN t13.transfer_date IS NULL AND t13.consent_date IS NOT NULL THEN 'missing transfer'
+			 WHEN t13.transfer_date IS NOT NULL AND t13.consent_date IS NULL THEN 'error transfer'
+			 ELSE NULL END AS consent_transfer_status
+			 
+			 
+FROM t13
+;
