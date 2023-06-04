@@ -11,7 +11,7 @@ WITH t1 AS
 	o.state,
 	o.zip,
 	o.consumer_email,
-	e.email AS enrollment_email,
+	e.email AS enroll_email,
 	c.mdn_active,
 	CASE WHEN o.telephone_number <> 0 THEN o.telephone_number 
 	     WHEN o.telephone_number = 0 AND c.mdn_active IS NOT NULL OR c.mdn_active <> 0 THEN c.mdn_active
@@ -227,7 +227,8 @@ t13 AS
 	t3.first_enroll_date,
 	t3.first_transferin_date,
 	CASE WHEN t12.type IS NOT NULL THEN t12.type 
-			 WHEN t12.type IS NULL AND t3.first_transferin_audit IS NOT NULL THEN 'first transferin audit'
+			 WHEN t12.type IS NULL AND t1.transfer_date = t3.first_transferin_date THEN 'first transferin 2022'
+			 WHEN t12.type IS NULL AND t1.transfer_date <> t3.first_transferin_date THEN 'first transferin before 2022'
        ELSE NULL END AS transferin_type,
 	t3.re_enroll_date,
 	t7.de_enroll_date,
@@ -253,7 +254,7 @@ t13 AS
 	CASE WHEN t1.state  <> '0' THEN t1.state ELSE NULL END AS state,
 	t1.zip,
 	CASE WHEN t1.consumer_email <> '0' THEN t1.consumer_email ELSE NULL END AS consumer_email,
-	t1.enrollment_email,
+	t1.enroll_email,
 	t1.telephone_number,
 	t1.mdn_active,
 	t1.subscriberid,
@@ -269,10 +270,10 @@ LEFT JOIN t8 ON t8.nlad_transaction_transfer_in_id = t1.transaction_id AND t1.tr
 LEFT JOIN t9 ON t9.nlad_transaction_transfer_in_id = t1.transaction_id AND t1.transfer_date >= '2022-04-19'
 LEFT JOIN t12 ON t12.next_transaction_id = t1.transaction_id
 ORDER BY t1.nlad_transaction_month, t1.transfer_date, t1.enrollment_id ASC
-)
+),
 
-
-SELECT
+t14 AS
+(SELECT
 	t13.enrollment_id,
 	t13.etc_general_use,
 	t13.transaction_id,
@@ -287,17 +288,26 @@ SELECT
 	t13.exception_code,
 	t13.consent_date,
 	t13.consumer_email,
-	t13.enrollment_email,
+	t13.enroll_email,
 	t13.telephone_number,
 	t13.mdn_active,
 	
+	CASE WHEN t13.transferin_type = 'out-in' AND t13.transaction_date_before <= t13.notice_send_date < t13.consent_date <= t13.transfer_date 
+			 AND DATEDIFF(t13.transfer_date,t13.consent_date) >= 0 AND DATEDIFF(t13.transfer_date,t13.consent_date) <= 30 THEN 'true process'
+			 WHEN t13.transferin_type = 'first transferin before 2022' AND t13.notice_send_date < t13.consent_date <= t13.transfer_date 
+			 AND DATEDIFF(t13.transfer_date,t13.consent_date) >= 0 AND DATEDIFF(t13.transfer_date,t13.consent_date) <= 30 THEN 'true process'
+			 WHEN t13.transferin_type = 'first transferin 2022' AND t13.notice_send_date < t13.consent_date <= t13.transfer_date 
+			 AND DATEDIFF(t13.transfer_date,t13.consent_date) >= 0 AND DATEDIFF(t13.transfer_date,t13.consent_date) <= 30 THEN 'true process'
+			 WHEN t13.transferin_type = 'deenroll-in' OR t13.transferin_type = 'enroll-in' OR t13.transferin_type = 'in-in' OR  t13.transferin_type = 'in-in 24h' THEN 'other'
+			 ELSE 'false process' END AS process_status
+/*
 	DATEDIFF(t13.notice_send_date,t13.transaction_date_before) AS var_transferout_notice,
 	CASE WHEN DATEDIFF(t13.notice_send_date,t13.transaction_date_before) < 0 THEN 'false notice'
 	     WHEN DATEDIFF(t13.notice_send_date,t13.transaction_date_before) >= 0 THEN 'true notice'
 			 WHEN t13.notice_send_date IS NULL AND t13.transaction_date_before IS NOT NULL THEN 'missing notice'
 			 WHEN t13.notice_send_date IS NOT NULL AND t13.transaction_date_before IS NULL THEN 'error notice'
-			 ELSE NULL END AS transferout_notice_status,
-	
+			 ELSE NULL END AS transferout_notice_status */
+/*	
 	DATEDIFF(t13.consent_date,t13.notice_send_date) AS var_notice_consent,		 
   CASE WHEN DATEDIFF(t13.consent_date,t13.notice_send_date) < 0 THEN 'false consent'
 	     WHEN DATEDIFF(t13.consent_date,t13.notice_send_date) >= 0 AND DATEDIFF(t13.consent_date,t13.notice_send_date) <= 30 THEN 'in limit consent'
@@ -312,8 +322,79 @@ SELECT
 			 WHEN DATEDIFF(t13.transfer_date,t13.consent_date) >30 THEN 'out limit transfer'
 			 WHEN t13.transfer_date IS NULL AND t13.consent_date IS NOT NULL THEN 'missing transfer'
 			 WHEN t13.transfer_date IS NOT NULL AND t13.consent_date IS NULL THEN 'error transfer'
-			 ELSE NULL END AS consent_transfer_status
+			 ELSE NULL END AS consent_transfer_status,
+
+/*	
+	CASE WHEN t13.notice_method_of_delivery = 'email' AND t13.notice_address = t13.consumer_email THEN 'exac email nlad'
+			 WHEN t13.notice_method_of_delivery = 'EMAIL' AND t13.notice_address = t13.consumer_email THEN 'exac email nlad'
+			 WHEN t13.notice_method_of_delivery = 'email' AND t13.notice_address = t13.enroll_email THEN 'exac email enroll'
+			 WHEN t13.notice_method_of_delivery = 'EMAIL' AND t13.notice_address = t13.enroll_email THEN 'exac email enroll'
+			 WHEN (t13.notice_method_of_delivery = 'email' AND t13.notice_address <> t13.enroll_email) 
+						OR (t13.notice_method_of_delivery = 'email' AND t13.notice_address <> t13.consumer_email) THEN 'wrong email'
+			 WHEN (t13.notice_method_of_delivery = 'EMAIL' AND t13.notice_address <> t13.enroll_email) 
+						OR (t13.notice_method_of_delivery = 'EMAIL' AND t13.notice_address <> t13.consumer_email) THEN 'wrong email'
+			 WHEN (t13.notice_method_of_delivery = 'email' AND t13.consumer_email IS NULL) OR
+					  (t13.notice_method_of_delivery = 'email' AND t13.enroll_email IS NULL) THEN 'error email' -- ko có (AT)
+			 WHEN (t13.notice_method_of_delivery = 'EMAIL' AND t13.consumer_email IS NULL) OR
+					  (t13.notice_method_of_delivery = 'EMAIL' AND t13.enroll_email IS NULL) THEN 'error email' 
+		
+		   WHEN t13.notice_method_of_delivery = 'sms' AND t13.notice_address = t13.telephone_number THEN 'exac telephone nlad'
+			 WHEN t13.notice_method_of_delivery = 'SMS' AND t13.notice_address = t13.telephone_number THEN 'exac telephone nlad'
+			 WHEN t13.notice_method_of_delivery = 'sms' AND t13.notice_address = t13.mdn_active THEN 'exac telephone cust'
+			 WHEN t13.notice_method_of_delivery = 'SMS' AND t13.notice_address = t13.mdn_active THEN 'exac telephone cust'
+			 WHEN (t13.notice_method_of_delivery = 'sms' AND t13.notice_address <> t13.telephone_number) 
+						OR (t13.notice_method_of_delivery = 'sms' AND t13.notice_address <> t13.mdn_active) THEN 'wrong sms'
+			 WHEN (t13.notice_method_of_delivery = 'SMS' AND t13.notice_address <> t13.telephone_number) 
+						OR (t13.notice_method_of_delivery = 'SMS' AND t13.notice_address <> t13.mdn_active) THEN 'wrong sms'
+			 WHEN (t13.notice_method_of_delivery = 'sms' AND t13.telephone_number IS NULL) OR
+					  (t13.notice_method_of_delivery = 'sms' AND t13.mdn_active IS NULL) THEN 'error sms' -- ko có (AT)
+			 WHEN (t13.notice_method_of_delivery = 'SMS' AND t13.telephone_number IS NULL) OR
+					  (t13.notice_method_of_delivery = 'SMS' AND t13.mdn_active IS NULL) THEN 'error sms' 
+						
+			 WHEN t13.notice_method_of_delivery =  'email' AND t13.notice_address IS NULL THEN 'mising email address'
+			 WHEN t13.notice_method_of_delivery =  'EMAIL' AND t13.notice_address IS NULL THEN 'mising email address'
+			 WHEN t13.notice_method_of_delivery =  'sms' AND t13.notice_address IS NULL THEN 'mising sms address'
+			 WHEN t13.notice_method_of_delivery =  'SMS' AND t13.notice_address IS NULL THEN 'mising sms address'
+			 WHEN t13.notice_method_of_delivery IS NULL AND t13.notice_address IS NOT NULL THEN 'mising method'  -- ko có (AT)
+			 WHEN t13.notice_method_of_delivery IS NULL AND t13.notice_address IS NULL THEN 'mising method + address' -- ko có (AT)
 			 
-			 
+			 WHEN t13.notice_method_of_delivery = 0 AND t13.notice_address = 0 THEN 'error all 0' -- ko có
+			 WHEN t13.notice_method_of_delivery = 0 AND t13.notice_address <> 0 THEN 'error method 0' -- ko có
+			 WHEN t13.notice_method_of_delivery <> 0 AND t13.notice_address = 0 THEN 'error address 0' -- ko có
+			 WHEN t13.notice_method_of_delivery ='WEB' THEN 'error web' -- 455 trường hợp (AT)
+			 WHEN t13.notice_method_of_delivery ='web' THEN 'error web'-- done
+			 ELSE NULL END AS detail_status
+*/			 
 FROM t13
+),
+t15 AS
+(SELECT 
+	t14.*,
+	DATEDIFF(t14.notice_send_date,t14.transaction_date_before) AS var_transferout_notice,
+	DATEDIFF(t14.consent_date,t14.notice_send_date) AS var_notice_consent,	
+	DATEDIFF(t14.transfer_date,t14.consent_date) AS var_consent_transfer,	
+	CASE WHEN t14.transferin_type = 'out-in' AND DATEDIFF(t14.notice_send_date,t14.transaction_date_before) < 0 OR DATEDIFF(t14.consent_date,t14.notice_send_date) <0 OR DATEDIFF(t14.transfer_date,t14.consent_date) < 0 THEN 'false date range'
+			WHEN t14.transferin_type = 'first transferin before 2022' AND DATEDIFF(t14.consent_date,t14.notice_send_date) <0 OR DATEDIFF(t14.transfer_date,t14.consent_date) < 0 THEN'false date range'
+			WHEN t14.transferin_type = 'first transferin 2022' AND DATEDIFF(t14.consent_date,t14.notice_send_date) <0 OR DATEDIFF(t14.transfer_date,t14.consent_date) < 0 THEN'false date range'
+			WHEN DATEDIFF(t14.notice_send_date,t14.transaction_date_before) > 0 OR DATEDIFF(t14.consent_date,t14.notice_send_date) >0 OR DATEDIFF(t14.transfer_date,t14.consent_date) > 0 AND DATEDIFF(t14.transfer_date,t14.consent_date) > 30 THEN 'out limit 30'
+			ELSE NULL
+			END AS reason
+FROM t14
+WHERE t14.process_status = 'false process'
+)
+
+SELECT 
+	t15.enrollment_id,
+	t15.transaction_id,
+	t15.transferin_type,
+	t15.transaction_date_before AS transferout_date,
+	t15.notice_send_date,
+	t15.consent_date,
+	t15.transfer_date,
+	t15.var_transferout_notice,
+	t15.var_notice_consent,
+	t15.var_consent_transfer,
+	t15.reason
+FROM t15
+WHERE t15.transferin_type NOT IN ('first transferin 2022')
 ;
