@@ -373,10 +373,16 @@ t15 AS
 	DATEDIFF(t14.notice_send_date,t14.transaction_date_before) AS var_transferout_notice,
 	DATEDIFF(t14.consent_date,t14.notice_send_date) AS var_notice_consent,	
 	DATEDIFF(t14.transfer_date,t14.consent_date) AS var_consent_transfer,	
-	CASE WHEN t14.transferin_type = 'out-in' AND DATEDIFF(t14.notice_send_date,t14.transaction_date_before) < 0 OR DATEDIFF(t14.consent_date,t14.notice_send_date) <0 OR DATEDIFF(t14.transfer_date,t14.consent_date) < 0 THEN 'false date range'
-			WHEN t14.transferin_type = 'first transferin before 2022' AND DATEDIFF(t14.consent_date,t14.notice_send_date) <0 OR DATEDIFF(t14.transfer_date,t14.consent_date) < 0 THEN'false date range'
-			WHEN t14.transferin_type = 'first transferin 2022' AND DATEDIFF(t14.consent_date,t14.notice_send_date) <0 OR DATEDIFF(t14.transfer_date,t14.consent_date) < 0 THEN'false date range'
-			WHEN DATEDIFF(t14.notice_send_date,t14.transaction_date_before) > 0 OR DATEDIFF(t14.consent_date,t14.notice_send_date) >0 OR DATEDIFF(t14.transfer_date,t14.consent_date) > 0 AND DATEDIFF(t14.transfer_date,t14.consent_date) > 30 THEN 'out limit 30'
+	CASE WHEN (t14.transferin_type = 'out-in' AND DATEDIFF(t14.notice_send_date,t14.transaction_date_before) < 0) OR 
+						(t14.transferin_type = 'out-in' AND DATEDIFF(t14.consent_date,t14.notice_send_date) <0) OR 
+						(t14.transferin_type = 'out-in' AND DATEDIFF(t14.transfer_date,t14.consent_date) < 0) THEN 'false date range'
+			 WHEN (t14.transferin_type = 'first transferin before 2022' AND DATEDIFF(t14.consent_date,t14.notice_send_date) <0) OR 
+			      (t14.transferin_type = 'first transferin before 2022' AND DATEDIFF(t14.transfer_date,t14.consent_date) < 0) THEN'false date range'
+			 WHEN (t14.transferin_type = 'first transferin 2022' AND DATEDIFF(t14.consent_date,t14.notice_send_date) <0) OR 
+			      (t14.transferin_type = 'first transferin 2022' AND DATEDIFF(t14.transfer_date,t14.consent_date) < 0) THEN'false date range'
+			 WHEN (DATEDIFF(t14.notice_send_date,t14.transaction_date_before) > 0 AND DATEDIFF(t14.transfer_date,t14.consent_date) > 30) OR 
+			      (DATEDIFF(t14.consent_date,t14.notice_send_date) >0 AND DATEDIFF(t14.transfer_date,t14.consent_date) > 30) OR 
+						(DATEDIFF(t14.transfer_date,t14.consent_date) > 0 AND DATEDIFF(t14.transfer_date,t14.consent_date) > 30) THEN 'out limit 30'
 			ELSE NULL
 			END AS reason
 FROM t14
@@ -396,5 +402,6 @@ SELECT
 	t15.var_consent_transfer,
 	t15.reason
 FROM t15
-WHERE t15.transferin_type NOT IN ('first transferin 2022')
+WHERE 
+t15.transferin_type NOT IN ('first transferin 2022')
 ;
