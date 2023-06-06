@@ -1,0 +1,200 @@
+-- drop table if exists audit_check_order_transaction;
+-- create TABLE audit_check_order_transaction
+WITH t10 AS
+(SELECT
+	ROW_NUMBER() OVER (PARTITION BY o.enrollment_id ORDER BY o.nlad_transaction_date, o.rank_by_enrollment ASC) AS row_no,
+	o.enrollment_id,
+	o.id AS transaction_id,
+	o.etc_general_use,
+	o.nlad_transaction_date,
+	o.transaction_type
+FROM audit_nlad_transaction_origin_final o 
+WHERE 
+o.transaction_type IN ('TRANSFERIN','TRANSFEROUT', 'DEENROLL', 'ENROLL')  AND o.nlad_transaction_date >= '2022-01-01' AND o.enrollment_id IS NOT NULL 
+),
+t11 AS
+(SELECT 
+	a.enrollment_id, 
+	a.transaction_id, 
+	a.nlad_transaction_date, 
+	a.transaction_type, 
+	b.transaction_id AS next_transaction_id, 
+	b.nlad_transaction_date AS next_nlad_transaction_date, 
+	b.transaction_type AS next_transaction_type
+FROM t10 a
+LEFT JOIN t10 b ON a.enrollment_id = b.enrollment_id  AND a.row_no + 1 = b.row_no
+ORDER BY 1
+),
+t12 AS
+(SELECT 
+	t11.*,
+	CASE WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'out-in' 
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'DEENROLL' THEN 'out-deenroll'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'ENROLL' THEN 'out-enroll'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'out-out'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'first transferout'
+			 WHEN t11.transaction_type = 'TRANSFEROUT' AND t11.next_transaction_type IS NULL  THEN 'last transferout'
+			 
+		   WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'deenroll-in'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'deenroll-out'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'ENROLL' THEN 'deenroll-enroll'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type = 'DEENROLL' THEN 'deenroll-deenroll'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'DEENROLL' THEN 'first deenroll'
+			 WHEN t11.transaction_type = 'DEENROLL' AND t11.next_transaction_type IS NULL  THEN 'last deenroll'
+			 
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'in-out'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'DEENROLL' THEN 'in-deenroll'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'ENROLL' THEN 'in-enroll'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFERIN' AND t11.nlad_transaction_date = t11.next_nlad_transaction_date THEN 'in-in 24h'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type = 'TRANSFERIN' AND t11.nlad_transaction_date <> t11.next_nlad_transaction_date THEN 'in-in'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'TRANSFERIN' THEN 'first transferin audit'
+			 WHEN t11.transaction_type = 'TRANSFERIN' AND t11.next_transaction_type IS NULL THEN 'last transferin'
+			 
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'TRANSFERIN' THEN 'enroll-in'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'TRANSFEROUT' THEN 'enroll-out'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'ENROLL' THEN 'enroll-enroll'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type = 'DEENROLL' THEN 'enroll-deenroll'
+			 WHEN t11.transaction_type IS NULL AND t11.next_transaction_type = 'ENROLL' THEN 'first enroll'
+			 WHEN t11.transaction_type = 'ENROLL' AND t11.next_transaction_type IS NULL THEN 'last enroll'
+			 ELSE NULL END AS type
+FROM t11
+),
+
+t2 AS
+(SELECT 
+	t1.enrollment_id,
+	t1.nlad_transaction_date,
+	t1.id AS transaction_id,
+	t1.transaction_type,
+	ROW_NUMBER() over (PARTITION by t1.enrollment_id, t1.transaction_type ORDER BY t1.rank_by_enrollment ASC) AS row_num
+FROM audit_nlad_transaction_origin_final t1
+WHERE 
+t1.transaction_type IN ('ENROLL','TRANSFERIN') AND t1.enrollment_id IS NOT NULL
+),
+c AS
+(SELECT
+	t2.enrollment_id,
+	GROUP_CONCAT(IF(t2.transaction_type = 'ENROLL' AND t2.row_num = 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS first_enroll_date,
+	GROUP_CONCAT(IF(t2.transaction_type = 'ENROLL' AND t2.row_num <> 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS re_enroll_date,
+	GROUP_CONCAT(IF(t2.transaction_type = 'TRANSFERIN' AND t2.row_num = 1 AND t2.enrollment_id = t2.enrollment_id, t2.nlad_transaction_date, null)) AS first_transferin_date
+FROM t2
+GROUP BY 1
+),
+d AS
+(SELECT
+ c.enrollment_id,
+ GROUP_CONCAT(IF(c.enrollment_id = c.enrollment_id AND c.transaction_type = 'ENROLL', c.nlad_transaction_date,NULL)) AS first_enroll,
+ GROUP_CONCAT(IF(c.enrollment_id = c.enrollment_id AND c.transaction_type = 'TRANSFERIN', c.nlad_transaction_date,NULL)) AS first_transferin
+FROM
+(SELECT 
+	a.etc_general_use,
+	a.subscriberid,
+	a.nlad_transaction_date,
+	a.transaction_type,
+	b.enrollment_id,
+	ROW_NUMBER() over (PARTITION by b.enrollment_id, a.transaction_type ORDER BY a.nlad_transaction_date ASC) AS row_num
+FROM audit_nlad_transaction_origin_2021 a
+LEFT JOIN audit_nlad_transaction_origin_final b ON a.etc_general_use = b.etc_general_use AND a.subscriberid = b.subscriberid
+WHERE b.enrollment_id IS NOT NULL AND a.transaction_type IN ('TRANSFERIN', 'ENROLL')  -- AND b.enrollment_id IN ('67853','218617','216743')
+) c
+WHERE c.row_num = 1
+GROUP BY 1
+),
+e AS
+(SELECT
+	c.enrollment_id,
+	CASE WHEN d.first_enroll IS NOT NULL THEN d.first_enroll ELSE c.first_enroll_date END AS first_enroll_date,
+	CASE WHEN d.first_transferin IS NOT NULL THEN d.first_transferin ELSE c.first_transferin_date END AS first_transferin_date,
+	CASE WHEN d.first_enroll IS NOT NULL AND c.first_enroll_date IS NOT NULL THEN c.first_enroll_date ELSE NULL END AS re_enroll_date_2,
+	c.re_enroll_date,
+	c.first_transferin_date AS first_transferin_audit
+FROM c 
+LEFT JOIN d ON c.enrollment_id = d.enrollment_id
+),
+
+f AS
+(SELECT
+	e.enrollment_id,
+	GROUP_CONCAT(IF(e.enrollment_id = e.enrollment_id, e.first_enroll_date,NULL)) AS first_enroll_date,
+	GROUP_CONCAT(IF(e.enrollment_id = e.enrollment_id, e.first_transferin_date,NULL)) AS first_transferin_date,
+	CONCAT(e.re_enroll_date_2,',',re_enroll_date) AS re_enroll_date,
+	e.first_transferin_audit
+FROM e
+GROUP BY 1
+),
+
+t3 AS
+(SELECT
+	f.enrollment_id,
+	f.re_enroll_date,
+	f.first_transferin_audit,
+	CASE 
+		WHEN f.first_enroll_date IS NULL THEN f.first_transferin_date
+		WHEN f.first_enroll_date IS NOT NULL AND f.first_enroll_date < f.first_transferin_date THEN f.first_enroll_date
+		WHEN f.first_enroll_date IS NOT NULL AND f.first_enroll_date >= f.first_transferin_date THEN f.first_transferin_date
+		ELSE NULL END AS first_enroll_date,
+	f.first_transferin_date
+FROM f
+),
+
+h AS
+(SELECT 
+	t.*,
+	t3.first_enroll_date,
+	t3.first_transferin_date,
+	t12.transaction_id AS transaction_id_before,
+	t12.transaction_type AS transaction_type_before,
+	t12.nlad_transaction_date AS transaction_date_before,
+	CASE WHEN t12.type IS NOT NULL THEN t12.type
+			 WHEN t12.type IS NULL AND t.transaction_type = 'TRANSFERIN' AND t3.first_transferin_date = t.nlad_transaction_date THEN 'first transferin'
+			 WHEN t12.type IS NULL AND t.transaction_type = 'TRANSFERIN' AND t3.first_transferin_date <> t.nlad_transaction_date THEN 'first transferin before 2022'
+			 WHEN t12.type IS NULL AND t.transaction_type = 'ENROLL' AND t3.first_enroll_date = t.nlad_transaction_date THEN 'first enroll'
+			 WHEN t12.type IS NULL AND t.transaction_type = 'ENROLL' AND t3.first_enroll_date <> t.nlad_transaction_date THEN 'first enroll before 2022'
+			 WHEN t12.type IS NULL AND t.transaction_type = 'ENROLL' AND t3.first_enroll_date IS NULL THEN 'first enroll'
+			 WHEN t12.type IS NULL AND t.transaction_type = 'TRANSFEROUT' THEN  'first transferout'
+			 WHEN t12.type IS NULL AND t.transaction_type = 'DEENROLL' THEN  'first deenroll'
+	 ELSE 'others'
+	 END AS transfer_type
+FROM audit_nlad_transaction_origin_final t
+LEFT JOIN t12 ON t12.next_transaction_id = t.ID
+LEFT JOIN t3 ON t.enrollment_id = t3.enrollment_id
+WHERE t.transaction_type <> 'UPDATE'
+)
+SELECT 
+	h.*,
+	CASE
+		WHEN h.transfer_type = 'out-in' OR 
+				 h.transfer_type = 'out-enroll' OR
+				 h.transfer_type = 'first transferout' OR
+				 h.transfer_type = 'last transferout' OR
+				 h.transfer_type = 'deenroll-in' OR
+				 h.transfer_type = 'deenroll-enroll' OR
+				 h.transfer_type = 'first deenroll' OR
+				 h.transfer_type = 'last deenroll' OR
+				 h.transfer_type = 'in-out' OR
+				 h.transfer_type = 'in-deenroll' OR
+				 h.transfer_type = 'first transferin audit' OR
+				 h.transfer_type = 'last transferin' OR
+				 h.transfer_type = 'enroll-out' OR
+				 h.transfer_type = 'enroll-deenroll' OR
+				 h.transfer_type = 'first enroll' OR
+				 h.transfer_type = 'last enroll' OR
+				 h.transfer_type = 'first transferin' OR
+				 h.transfer_type = 'first transferin before 2022' OR 
+				 h.transfer_type = 'first enroll before 2022' 
+	 THEN 'TRUE'
+	 WHEN  h.transfer_type = 'out-deenroll' OR 
+				 h.transfer_type = 'out-out' OR
+				 h.transfer_type = 'deenroll-out' OR
+				 h.transfer_type = 'deenroll-deenroll' OR
+				 h.transfer_type = 'in-enroll' OR
+				 h.transfer_type = 'in-in 24h' OR
+				 h.transfer_type = 'in-in' OR
+				 h.transfer_type = 'enroll-in' OR
+				 h.transfer_type = 'enroll-enroll'
+	THEN 'ERROR'
+	ELSE NULL END AS transfer_type_check
+	FROM h
+;
+
+-- SELECT * FROM audit_check_order_transaction LIMIT 10
