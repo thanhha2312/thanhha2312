@@ -1,0 +1,83 @@
+WITH
+t1 AS
+(SELECT *
+FROM audit_check_order_transaction a
+WHERE a.transfer_type IN ('in-in', 'in-in 24h')
+),
+t2 AS 
+(SELECT 
+	t1.enrollment_id,
+	t1.transfer_type,
+	t1.ID AS transaction_id,
+	t1.nlad_transaction_date AS transfer_date,
+	t1.transaction_type,
+	t1.transaction_id_before AS transaction_id_before_1,
+	t1.transaction_date_before AS transaction_date_before_1,
+	t1.transaction_type_before AS transaction_type_before_1,
+	
+	t0.transaction_id_before AS transaction_id_before_2,
+	t0.transaction_date_before AS transaction_date_before_2,
+	t0.transaction_type_before AS transaction_type_before_2
+FROM t1 
+LEFT JOIN audit_check_order_transaction t0 ON t0.ID = t1.transaction_id_before
+),
+t3 AS
+(SELECT
+	t2.*,
+	t.transaction_id_before AS transaction_id_before_3,
+	t.transaction_date_before AS transaction_date_before_3,
+	t.transaction_type_before AS transaction_type_before_3
+FROM t2 
+LEFT JOIN audit_check_order_transaction t ON t.ID = t2.transaction_id_before_2
+),
+t4 AS
+(SELECT 
+t3.*,
+a.transaction_id_before AS transaction_id_before_4,
+a.transaction_date_before AS transaction_date_before_4,
+a.transaction_type_before AS transaction_type_before_4
+FROM t3
+LEFT JOIN audit_check_order_transaction a ON a.ID = t3.transaction_id_before_3
+),
+t5 AS
+(SELECT 
+	b.ID AS transaction_id_after_1,
+	b.nlad_transaction_date AS transaction_date_after_1,
+	b.transaction_type AS transaction_type_after_1,
+	t4.*
+FROM t4 
+LEFT JOIN audit_check_order_transaction b ON b.transaction_id_before = t4.transaction_id
+),
+t6 AS
+(SELECT 
+	c.ID AS transaction_id_after_2,
+	c.nlad_transaction_date AS transaction_date_after_2,
+	c.transaction_type AS transaction_type_after_2,
+	t5.*
+FROM t5
+LEFT JOIN audit_check_order_transaction c ON c.transaction_id_before = t5.transaction_id_after_1
+),
+t7 AS
+(SELECT 
+	d.ID AS transaction_id_after_3,
+	d.nlad_transaction_date AS transaction_date_after_3,
+	d.transaction_type AS transaction_type_after_3,
+	t6.*
+FROM t6
+LEFT JOIN audit_check_order_transaction d ON d.transaction_id_before = t6.transaction_id_after_2
+),
+t8 AS
+(SELECT 
+	e.ID AS transaction_id_after_4,
+	e.nlad_transaction_date AS transaction_date_after_4,
+	e.transaction_type AS transaction_type_after_4,
+	t7.*
+FROM t7
+LEFT JOIN audit_check_order_transaction e ON e.transaction_id_before = t7.transaction_id_after_3
+)
+
+SELECT
+ t8.*
+FROM t8
+WHERE t8.transfer_type = 'in-in 24h';
+
