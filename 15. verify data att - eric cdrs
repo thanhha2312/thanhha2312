@@ -1,0 +1,48 @@
+-- B1. xác định các mdn lệch : mdn in ('3212911855',9109207941, 2096016801)
+with t1 as
+(SELECT
+    mdn,
+    sum(case when record_type = 'Data' then total_volume_mb else 0 end) as data_usage_att
+FROM "att_etl"."dtm_att_usage_summary"
+where summary_date = date('2023-06-10') and record_type = 'Data' and total_volume_mb > 0
+group by 1 limit 20
+),
+t2 as
+(SELECT
+    mdn,
+    sum(case when record_type = 'Data' then total_volume_mb else 0 end) as data_usage_eric
+FROM "eric_etl"."dtm_eric_usage_summary"
+where summary_date = date('2023-06-10') and record_type = 'Data' and total_volume_mb > 0
+group by 1
+)
+
+SELECT
+t1. mdn, t1.data_usage_att, t2.data_usage_eric
+FROM t1 
+left join t2 on t1.mdn = t2.mdn
+where t2.data_usage_eric is not null
+;
+
+with t1 AS
+(SELECT *,
+ CAST(
+      (CAST(upload_data_mb AS decimal(25, 6)) + CAST(download_data_mb AS decimal(25, 6)))
+      / 10000
+      / 1024 AS decimal(25, 6)
+    ) AS volume_mb
+FROM "att_etl"."stg_att_data_records_cdrs"
+where mdn in ('5132248751', '3129259744', '7165446127', '3092068887', '9093779266', '4044144238') -- '3212911855' 
+and date(start_time_utc) = date('2023-06-10') and base_price_plan_code LIKE '%RDS%' AND base_price_plan_code NOT LIKE '%RDST%'
+)
+SELECT
+    sum(volume_mb) AS volume_mb
+FROM t1
+;
+
+SELECT *, 
+CASE WHEN (traffic_type = 'GPRS') THEN CAST(volume AS decimal(26, 6)) / 1024.0 / 1024.0 ELSE 0.0 END AS volume_mb
+FROM "eric_etl"."stg_eric_call_adjustments_cdrs"
+where mdn in ('5132248751', '3129259744', '7165446127', '3092068887', '9093779266', '4044144238') -- '3212911855' 
+      and date(start_time_utc) = date('2023-06-10') and traffic_type = 'GPRS'
+;
+
