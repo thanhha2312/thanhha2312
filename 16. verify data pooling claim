@@ -1,0 +1,45 @@
+SELECT * FROM "hth_claims_raw"."mdn_snapshot" limit 10;
+SELECT max("created_date") as max_date FROM "hth_claims_raw"."mdn_snapshot"; -- 2023-08-27
+
+-- 260878 mdn 
+with t1 as
+(SELECT distinct "telephone_number" as mdn
+FROM "hth_claims_raw"."mdn_snapshot" 
+where "year_" = '2023' and "month_" = '08' and "line_status" in ('ACTIVE','RESTRICTED') and "telephone_number" is not null),
+t2 as
+(SELECT distinct mdn FROM "hth_claims_raw"."found_customers_oss" where mdn is not null),
+t3 as 
+(SELECT distinct mdn_active as mdn FROM "prod_hth_structured_oss"."oss_airv_customers" where "mdn_active" is not null),
+t4 as 
+(SELECT
+    t1.mdn, 
+    case when t1.mdn = t2.mdn then 'claim' else 'no exist' end as group_t2,
+    case when t1.mdn = t3.mdn then 'airvoice' else 'no exist' end as group_t3
+FROM t1 
+left join t2 on t1.mdn = t2.mdn 
+left join t3 on t1.mdn = t3.mdn
+),
+t5 as 
+(SELECT *
+FROM t4
+where t4.group_t2 = 'no exist' and t4.group_t3 = 'no exist'
+),
+
+t6 as
+(SELECT distinct phone_number_active as mdn
+FROM "hth_analytics"."dim_customer" where "phone_number_active" is not null
+),
+t7 as 
+(SELECT t5.*,
+    case when t5.mdn = t6.mdn then 'exist in dim customer' else 'no exist' end as group_t4
+FROM t5 
+left join t6 on t5.mdn = t6.mdn
+),
+t8 as
+(SELECT t7.*
+FROM t7 
+where t7.group_t4 = 'no exist'
+)
+
+SELECT FROM t8 where
+
