@@ -1,0 +1,66 @@
+with t1 as
+(SELECT
+date_format(created_date,'%Y-%m') as year_month,
+date_trunc('month',date_add('month', -1 ,current_date)) + interval '1' month - interval '1' day AS last_day,
+sum(case when "plan_price" = '3.4' then no_mdn else 0 end ) AS billable_days_3,
+sum(case when "plan_price" = '9.25' then no_mdn else 0 end ) AS billable_days_9
+FROM
+	(
+	SELECT
+		created_date,
+		tmp.Account_Status,
+		tmp."debit_plan",
+		plan AS plan_price,
+		count(distinct "telephone_number") AS no_mdn 
+	FROM
+		(
+		SELECT
+			created_date,
+		IF
+			( DATE( pw."activation_date" ) >= date("created_date"), 'ACTIVE', pw."line_status") AS Account_Status,
+			pw."activation_date",
+			pw."line_status",
+			pw."debit_plan",
+			pw."telephone_number",
+			b.plan 
+		FROM
+			"pwg_snapshot_etl"."stg_pwg_snapshot_cdrs"  AS pw
+			LEFT JOIN "static"."pwg_usage_plan_mapping" b ON pw."debit_plan" = b."debit_plan" 
+		WHERE
+			month("created_date") = month(date_add('month', -1 ,current_date))
+		) AS tmp 
+	WHERE
+		tmp.Account_Status IN ( 'ACTIVE', 'RESTRICTED' ) 
+	GROUP BY
+		1,
+		2,
+		3,
+		4 
+	) AS tmp2 
+WHERE "plan_price" not in ('.50 MRC', 'Pool Plan 1 ($8)')
+GROUP BY
+	1, 2
+),
+
+t2 AS
+(SELECT
+ date_format(date,'%Y-%m') as year_month,
+ sum("daily_usage_9") AS daily_usage_9,
+ sum("daily_usage_3") AS daily_usage_3
+FROM "pwg_snapshot_etl"."dtm_pwg_snapshot_pooling_report"
+WHERE month("date") = month(date_add('month', -1 ,current_date))
+GROUP BY 1 
+)
+
+SELECT
+    t1.year_month,
+    t1.billable_days_3,
+    t1.billable_days_9,
+    1000 as plan_limit_3,
+    3600 as plan_limit_9,
+    30 AS plan_days,
+    day(t1.last_day) as days_in_cycle,
+    t2.daily_usage_3,
+    t2.daily_usage_9
+FROM t1
+LEFT JOIN t2 ON t1."year_month" = t2."year_month" 
