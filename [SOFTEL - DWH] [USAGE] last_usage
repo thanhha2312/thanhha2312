@@ -1,0 +1,29 @@
+with t1 as 
+(select *, concat("year_",'-',"month_") as year_month_usage  
+from "hth_analytics"."dtm_last_usage" 
+-- where mdn in('8703606082','5734666736','4173793074')
+),
+t2 as
+(select
+    "customer_id", 
+    "application_approved_at",
+    date_add('month',2,current_date) as month_add,
+    date_format("application_approved_at",'%Y-%m') as year_month_approve,
+    "phone_number_active",
+    rank() over (partition by "phone_number_active" order by "application_approved_at" desc) as rank_customer
+from "hth_analytics"."dim_customer" 
+where "phone_number_active" is not null 
+-- and customer_id = 'CINT1019942'
+-- and "phone_number_active" in ('8703606082','5734666736','4173793074')
+),
+t3 as -- 132 417/3 949 851 = 3% ko map đc KH do ko có thông tin
+(select
+    t1.*,
+    case when a."customer_id" is not null then a.customer_id else b.customer_id end as customer_id
+from t1
+left join t2 a on t1."mdn" = a."phone_number_active" and a.year_month_approve <= year_month_usage and a.rank_customer = 1
+left join t2 b on t1."mdn" = b."phone_number_active" and b.year_month_approve <= year_month_usage and b.rank_customer = 2
+)
+select *
+from t3
+where t3."customer_id" is not null 
