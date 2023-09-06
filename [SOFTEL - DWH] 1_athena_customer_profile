@@ -1,0 +1,16 @@
+SELECT
+    a."customer_id",
+    a."is_customer",
+    a."customer_code",
+    a."created_at",
+    a."activated_at",
+    a."application_approved_at" as approved_at,
+    a."is_fulfilled",
+    a.status_name,
+    a."source",
+    a."dob",
+    a."phone_number_active",
+    a."city",
+    a."state",
+    a."etc_branch_code"
+FROM "hth_analytics"."dim_customer" a
