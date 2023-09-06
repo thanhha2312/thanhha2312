@@ -1,0 +1,90 @@
+with t1 as 
+(select *, concat("year_",'-',"month_") as year_month_usage  
+from "hth_analytics"."dtm_last_usage" 
+-- where mdn in('8703606082','5734666736','4173793074')
+),
+t2 as
+(select
+    "customer_id", 
+    "application_approved_at",
+    "enrollment_type_name",
+    "is_tribal",
+    case 
+        when enrollment_type_name = 'LIFELINE' and is_tribal = true then 34.25 
+        when enrollment_type_name = 'LIFELINE' and is_tribal = false then 9.25 
+        when enrollment_type_name = 'ACP' and is_tribal = true then 75
+        when enrollment_type_name = 'ACP' and is_tribal = false then 30 
+        when enrollment_type_name = 'COMBO' and is_tribal = true then 109.25
+        when enrollment_type_name = 'COMBO' and is_tribal = false then 39.25 
+    else 0 end as unit_rev,
+    date_add('month',2,current_date) as month_add,
+    (date_diff('month',last_day_of_month("application_approved_at"),last_day_of_month(current_date))+1) as register_month, -- chuyển về last_month với cả 2 field date
+    case 
+        when (date_diff('month',last_day_of_month("application_approved_at"),last_day_of_month(current_date))+1) >=1 and (date_diff('month',last_day_of_month("application_approved_at"),last_day_of_month(current_date))+1) <= 3 then 'register 1-3 months'
+        when (date_diff('month',last_day_of_month("application_approved_at"),last_day_of_month(current_date))+1) >=4 and (date_diff('month',last_day_of_month("application_approved_at"),last_day_of_month(current_date))+1) <= 6 then 'register 4-6 months'
+        when (date_diff('month',last_day_of_month("application_approved_at"),last_day_of_month(current_date))+1) > 6 then 'register > 6 months'
+    else 'non register' end as register_segmentation,
+    date_format("application_approved_at",'%Y-%m') as year_month_approve,
+    "phone_number_active",
+    rank() over (partition by "phone_number_active" order by "application_approved_at" desc) as rank_customer
+from "hth_analytics"."dim_customer" a 
+left join hth_analytics."stg_map_oss_enrollments" b on a.customer_id = b."enrollment_id"
+where "phone_number_active" is not null 
+-- and customer_id = 'CINT1019942'
+-- and "phone_number_active" in ('8703606082','5734666736','4173793074')
+),
+cust as
+(select
+    t1.*,
+    case when a."customer_id" is not null then a.customer_id else b.customer_id end as customer_id
+from t1
+left join t2 a on t1."mdn" = a."phone_number_active" and a.year_month_approve <= year_month_usage and a.rank_customer = 1
+left join t2 b on t1."mdn" = b."phone_number_active" and b.year_month_approve <= year_month_usage and b.rank_customer = 2
+),
+t3 as
+(select
+    customer_id,
+    count(distinct "year_month") as total_active_month,
+    max("year_month") as last_month_active,
+    max(month("last_usage_date_all")) as last_month_usage
+from cust
+group by 1
+)
+
+select
+    t2."customer_id",
+    t2.application_approved_at,
+    t2."enrollment_type_name",
+    t2."is_tribal",
+    t2.unit_rev,
+    case when t3.total_active_month is not null then t3.total_active_month*t2.unit_rev else 0 end as total_revenue,
+    t2.register_month,
+    t2.register_segmentation,
+    case when t3.total_active_month is not null then t3.total_active_month else 0 end as total_active_month,
+    case when t3.last_month_usage is not null then t3.last_month_usage else 0 end as last_month_usage,
+    case
+        when t2.register_segmentation = 'non register' then 'non register'
+        
+        when t2.register_segmentation = 'register 1-3 months' and t3.total_active_month = 3 then 'promissing'
+        when (t2.register_segmentation = 'register 1-3 months' and t3.total_active_month = 2) or 
+             (t2.register_segmentation = 'register 1-3 months' and t3.total_active_month = 1) then 'need_attention'
+        when t2.register_segmentation = 'register 1-3 months' and t3.total_active_month is null then 'lost_customer'
+        
+        when t2.register_segmentation = 'register 4-6 months' and t3.total_active_month > 3 and t2.register_month = t3.total_active_month then 'potential_loyalist'
+        when t2.register_segmentation = 'register 4-6 months' and t3.total_active_month > 3 and t2.register_month > t3.total_active_month then 'at_risk'
+        when (t2.register_segmentation = 'register 4-6 months' and t3.total_active_month <= 3 and t3.total_active_month >= 1 and month(current_date) = t3.last_month_usage) then 'need_attention'
+        when (t2.register_segmentation = 'register 4-6 months' and t3.total_active_month <= 3 and t3.total_active_month >= 1 and month(current_date) > t3.last_month_usage) then 'at_risk'
+        when (t2.register_segmentation = 'register 4-6 months' and t3.total_active_month is null) or 
+             (t2.register_segmentation = 'register 4-6 months' and t3.last_month_usage is null) then 'lost_customer'
+             
+        when t2.register_segmentation = 'register > 6 months' and t3.total_active_month > 6 and t2.register_month = t3.total_active_month then 'loyalty'
+        when t2.register_segmentation = 'register > 6 months' and t3.total_active_month > 6 and t2.register_month > t3.total_active_month then 'need_attention'
+        when (t2.register_segmentation = 'register > 6 months' and t3.total_active_month <= 6 and t3.total_active_month >= 4 and t2.register_month = t3.total_active_month) then 'need_attention'
+        when (t2.register_segmentation = 'register > 6 months' and t3.total_active_month <= 6 and t3.total_active_month >= 4 and t2.register_month > t3.total_active_month) then 'at_risk'
+        when (t2.register_segmentation = 'register > 6 months' and t3.total_active_month <= 3 and t3.total_active_month >= 1 and month(current_date) = t3.last_month_usage) then 'need_attention'
+        when (t2.register_segmentation = 'register > 6 months' and t3.total_active_month <= 3 and t3.total_active_month >= 1 and month(current_date) > t3.last_month_usage) then 'at_risk'
+        when (t2.register_segmentation = 'register > 6 months' and t3.total_active_month is null) or 
+             (t2.register_segmentation = 'register > 6 months' and t3.last_month_usage is null) then 'lost_customer'
+        else null end as customer_segmentation
+from t2
+left join t3 on t2."customer_id" = t3."customer_id"
