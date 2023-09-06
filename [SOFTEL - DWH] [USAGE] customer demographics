@@ -1,0 +1,27 @@
+SELECT 
+    "customer_id",
+    "phone_number_active",
+    "dob",
+    "city",
+    "state",
+    source,
+    "amt_lifetime_days",
+    "amt_activate_days",
+    "status_name",
+    "carrier_name",
+    "upgraded_plan",
+    case when "upgraded_plan" in (34, 35, 36, 37) then 1 else 0 end as is_copay_plan,
+    a."plan_id",
+    b."product_code" as plan_code,
+    b."name" as plan_name,
+    a."product_id",
+    c."product_code" as product_code,
+    c."name" as product_name,
+    c."category_name" as product_category_name,
+    c."category_type" as product_category_type,
+    a."enrollment_type_name",
+    a."etc_branch_code"
+FROM "hth_analytics"."dim_customer" a 
+left join "hth_analytics"."dim_products" b on a."plan_id" = b.product_id and b."product_type" = 'PLAN'
+left join "hth_analytics"."dim_products" c on a."product_id" = c.product_id and c."product_type" = 'PRODUCT'
+where a."phone_number_active" is not null 
