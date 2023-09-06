@@ -1,0 +1,49 @@
+with t1 as
+(select
+    a.nlad_transactions_id,
+    a."customer_id",
+    a."nlad_transaction_date", 
+    b."name" as transaction_type_name,
+    c."name" as enrollment_type_name,
+    CASE WHEN a."etc_branch_id" = 1 THEN 'Airtalk' ELSE 'Cintex' END AS branch_name,
+    CASE WHEN b.name in ('ENROLL','TRANSFERIN') THEN 'IN' WHEN b.name in ('TRANSFEROUT','DEENROLL') THEN 'OUT' ELSE null END AS transaction_type_group,
+    date_format(a."nlad_transaction_date",'%Y-%m') AS year_month,
+    rank() over (partition by a."customer_id", date_format(a."nlad_transaction_date",'%Y-%m') order by nlad_transactions_id desc) as rank_order 
+from "hth_analytics"."fact_nlad_transactions" a 
+left join "dim_transaction_type" b on a.transaction_type_id = b."transaction_type_id"
+left join "dim_enrollment_type" c on a."enrollment_type_id" = c."enrollment_type_id" 
+where a.customer_id is not null AND a.nlad_transaction_date >= date('2022-11-01') AND b."name" in ('ENROLL','TRANSFERIN','TRANSFEROUT','DEENROLL')
+),
+t2 AS
+(select
+    t1.customer_id,
+    SUM(CASE WHEN t1.transaction_type_name = 'ENROLL' THEN 1 ELSE 0 END) AS transaction_enroll_amt,
+    SUM(CASE WHEN t1.transaction_type_name = 'DEENROLL' THEN 1 ELSE 0 END) AS transaction_deenroll_amt,
+    SUM(CASE WHEN t1.transaction_type_name = 'TRANSFERIN' THEN 1 ELSE 0 END) AS transaction_transferin_amt,
+    SUM(CASE WHEN t1.transaction_type_name = 'TRANSFEROUT' THEN 1 ELSE 0 END) AS transaction_transferout_amt,
+    SUM(CASE WHEN t1.transaction_type_group = 'IN' THEN 1 ELSE 0 END) AS transaction_in_amt,
+    SUM(CASE WHEN t1.transaction_type_group = 'OUT' THEN 1 ELSE 0 END) AS transaction_out_amt,
+	COUNT(DISTINCT (CASE WHEN t1.transaction_type_group = 'IN' THEN year_month END)) AS month_in_amt,
+	COUNT(DISTINCT (CASE WHEN t1.transaction_type_group = 'OUT' THEN year_month END)) AS month_out_amt,
+	SUM(CASE WHEN t1.transaction_type_group = 'IN' AND t1.rank_order = 1 THEN 1 ELSE 0 END) AS eomonth_in_amt,
+	SUM(CASE WHEN t1.transaction_type_group = 'OUT' AND t1.rank_order = 1 THEN 1 ELSE 0 END) AS eomonth_out_amt
+from t1
+group by t1.customer_id
+)
+
+SELECT
+	t2.customer_id,
+	t2.transaction_enroll_amt,
+	t2.transaction_deenroll_amt,
+	t2.transaction_transferin_amt,
+	t2.transaction_transferout_amt,
+	t2.transaction_in_amt,
+	t2.transaction_out_amt,
+	t2.month_in_amt,
+	t2.month_out_amt,
+	CASE WHEN t2.month_in_amt = 0 THEN 0 ELSE ROUND(t2.transaction_in_amt/t2.month_in_amt,0) END AS avg_transaction_in_amt,
+	CASE WHEN t2.month_out_amt = 0 THEN 0 ELSE ROUND(t2.transaction_out_amt/t2.month_out_amt,0) END AS avg_transaction_out_amt,
+	t2.eomonth_in_amt,
+	t2.eomonth_out_amt
+FROM t2
+;
