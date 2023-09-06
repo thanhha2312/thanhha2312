@@ -1,0 +1,15 @@
+select
+   a."customer_id",
+   a."carrier_name",
+   a."enrollment_type_name",
+   a."upgraded_plan",
+   case when a."upgraded_plan" in (34, 35, 36, 37) then 1 else 0 end as using_copay,
+   b."product_code" as plan_code,
+   b."name" as plan_name,
+   c."product_code",
+   c."name" as "product_name",
+   c."category_type",
+   c."category_name"
+from "dim_customer" a
+left join "dim_products" b on a."plan_id" = b."product_id"
+left join "dim_products" c on a."product_id" = c."product_id"
