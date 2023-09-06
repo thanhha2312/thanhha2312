@@ -1,0 +1,16 @@
+select
+ a.nlad_transactions_id,
+ b.consent,
+ a.customer_id,
+ e."enrollment_type_name",
+ a."nlad_transaction_date",
+ c."name" as transaction_type,
+ d."name" as enrollment_type
+from "fact_nlad_transactions" a 
+left join "fact_transfer_agreements" b on a.nlad_transactions_id = b."nlad_transaction_id" and b."consent" = 'YES'
+left join "dim_transaction_type" c on a."transaction_type_id" = c."transaction_type_id"
+left join "dim_enrollment_type" d on d."enrollment_type_id" = a."enrollment_type_id"
+left join "dim_customer" e on e."customer_id" = a."customer_id"
+where
+c."name" not in ('UPDATE', 'TRANSFEROUT_PENDING', 'Has Usage') and a.nlad_transaction_date > date('2021-12-31') 
+and a."nlad_transaction_date" <= date_add('day', -2, current_date) 
