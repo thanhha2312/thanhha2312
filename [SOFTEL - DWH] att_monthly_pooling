@@ -1,0 +1,135 @@
+with t1 as
+(SELECT 
+    cast(concat("year_", '-', "month_",'-', "day_") as date) as date,
+    a."service_class",
+    b."plan_price",
+    count(distinct mdn) as no_mdn
+FROM "eric_etl"."stg_eric_status_snapshots_cdrs" a 
+left join "static"."att_usage_plan_mapping" b on a."service_class" = b."service_class"
+where (status in ('A','U') and month(cast(concat("year_", '-', "month_",'-', "day_") as date)) = month(date_add('month', -2 ,current_date)))
+    or (status in ('A','U') and month(cast(concat("year_", '-', "month_",'-', "day_") as date)) = month(date_add('month', -1 ,current_date)))
+group by 1, 2, 3
+),
+t2 AS
+(SELECT
+    date_format(date,'%Y-%m') as year_month,
+    "plan_price",
+    sum(no_mdn) AS billable_days
+FROM t1 
+group by 1,2
+),
+t3 AS
+(SELECT
+    "plan_price",
+    "usage_type",
+    "plan_limit",
+    (cast("plan_limit" AS decimal(38,10))*12)/365 AS allotment_per_billable_day
+FROM "static"."att_plan_limit"
+),
+t4 AS
+(SELECT
+    t3.*,
+    t2.billable_days,
+    t3.allotment_per_billable_day*t2.billable_days AS total_allotment,
+    t2."year_month"
+FROM t3
+left join t2 on t3."plan_price" = t2."plan_price"
+),
+t5 AS
+(SELECT
+    date_format("effective_date",'%Y-%m') as year_month,
+    sum("daily_usage_3") as daily_usage_3,
+    sum("daily_usage_sms_3") as daily_usage_sms_3,
+    sum("daily_usage_sms_10") as daily_usage_sms_10,
+    sum("daily_usage_mms_3") as daily_usage_mms_3,
+    sum("daily_usage_mms_10") as daily_usage_mms_10,
+    sum("daily_usage_voice_3") as daily_usage_voice_3,
+    sum("daily_usage_voice_10") as daily_usage_voice_10,
+    sum("daily_usage_data_3") as daily_usage_data_3,
+    sum("daily_usage_data_10") as daily_usage_data_10
+FROM  "att_etl"."dtm_att_usage" 
+WHERE month("effective_date") = month(date_add('month', -1 ,current_date)) or month("effective_date") = month(date_add('month', -2 ,current_date))
+group by 1 
+),
+t6 AS
+(SELECT
+    t4.*,
+    case 
+        when t4.usage_type = 'data' and t4."plan_price" = '3.00' then daily_usage_data_3
+        when t4.usage_type = 'voice' and t4."plan_price" = '3.00' then daily_usage_voice_3 
+        when t4.usage_type = 'sms' and t4."plan_price" = '3.00' then daily_usage_sms_3
+        when t4.usage_type = 'mms' and t4."plan_price" = '3.00' then daily_usage_mms_3
+        when t4.usage_type = 'data' and t4."plan_price" = '10.00' then daily_usage_data_10
+        when t4.usage_type = 'voice' and t4."plan_price" = '10.00' then daily_usage_voice_10 
+        when t4.usage_type = 'sms' and t4."plan_price" = '10.00' then daily_usage_sms_10
+        when t4.usage_type = 'mms' and t4."plan_price" = '10.00' then daily_usage_mms_10
+    else null end as actual_usage
+FROM t4 
+left join t5 on t4."year_month" = t5."year_month"
+),
+t7 as
+(SELECT
+    t6."year_month",
+    t6."plan_price",
+    t6.usage_type,
+    t6.plan_limit,
+    cast(allotment_per_billable_day as decimal(38,0)) as allotment_per_billable_day,
+    billable_days,
+    cast(total_allotment as decimal(38,0)) as total_allotment,
+    case 
+        when usage_type = 'data' then cast(actual_usage as decimal(38,0))*1024
+        else cast(actual_usage as decimal(38,0)) end as actual_usage,
+    case
+        when usage_type = 'data' and "plan_price" = '3.00' then 0.005/1024 
+        when usage_type = 'voice' and "plan_price" = '3.00' then 0.005
+        when usage_type = 'sms' and "plan_price" = '3.00' then 0.0005
+        when usage_type = 'mms' and "plan_price" = '3.00' then 0.005
+        when usage_type = 'data' and "plan_price" = '10.00' then 0.0035/1024 
+        when usage_type = 'voice' and "plan_price" = '10.00' then 0.005
+        when usage_type = 'sms' and "plan_price" = '10.00' then 0.0005
+        when usage_type = 'mms' and "plan_price" = '10.00' then 0.005
+    else null end as overage_rate
+FROM t6
+),
+t8 as
+(SELECT
+    t7."year_month",
+    t7."plan_price",
+    case 
+        when plan_price = '3.00' then cast(3 as decimal(38,10))*12/365
+        when plan_price = '10.00' then cast(10 as decimal(38,10))*12/365
+    else null end as contract_rate,
+    case 
+        when plan_price = '3.00' then (cast(3 as decimal(38,10))*12/365)*billable_days
+        when plan_price = '10.00' then (cast(10 as decimal(38,10))*12/365)*billable_days
+    else null end as total_charge,
+    t7.usage_type,
+    t7.plan_limit,
+    t7.allotment_per_billable_day,
+    t7.billable_days,
+    t7.total_allotment,
+    t7.actual_usage,
+    cast(t7.overage_rate as decimal(38,10)) as overage_rate,
+    t7.total_allotment - t7.actual_usage as remain_usage,
+    case
+        when t7.total_allotment - t7.actual_usage > 0 then 0 
+        when t7.total_allotment - t7.actual_usage <0 then abs(t7.total_allotment - t7.actual_usage)*t7.overage_rate
+    else null end as overage_charge
+FROM t7
+)
+
+SELECT
+    "year_month",
+    "plan_price",
+    cast(contract_rate as decimal(38,4)) as contract_rate,
+    cast(total_charge as decimal(38,2)) as total_charge,
+    usage_type,
+    cast(plan_limit as decimal(38,0)) as plan_limit,
+    allotment_per_billable_day,
+    billable_days,
+    total_allotment,
+    actual_usage,
+    overage_rate,
+    remain_usage,
+    cast(overage_charge as decimal(38,2)) as overage_charge
+FROM t8
