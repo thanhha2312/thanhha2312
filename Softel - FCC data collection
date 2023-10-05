@@ -1,0 +1,88 @@
+-- collect infos enrollment
+with t0 as 
+(SELECT
+a.subscriberid,
+a.spin,
+a.sac,
+a.zip,
+a.reasoncode,
+a.tribalbenefitflag,
+a.etcgeneral as enrollment_id,
+a.phonenumber,
+case 
+    when d.phone_number_active is not null and e.mdn_active is null then d.phone_number_active
+    when d.phone_number_active is null and e.mdn_active is not null then e.mdn_active
+    when d.phone_number_active is null and e.mdn_active is null and a.phonenumber is not null then a.phonenumber
+    else null end as phone_number_active,
+case
+    when a.etcgeneral = b.enrollment_number then b.plan_id
+    when a.etcgeneral = c.enrollment_id then c.plan_id 
+    else null end as plan_id,
+case 
+    when a.etcgeneral = b.enrollment_number and b.enrollment_type =  1 then 'ACP'
+    when a.etcgeneral = b.enrollment_number and b.enrollment_type =  3 then 'COMBO'
+    when a.etcgeneral = b.enrollment_number and b.enrollment_type =  2 then 'LIFELINE'
+    when a.etcgeneral = c.enrollment_id and c.enrollment_type = 1 then 'ACP'
+    when a.etcgeneral = c.enrollment_id and c.enrollment_type = 3 then 'COMBO'
+    when a.etcgeneral = c.enrollment_id and c.enrollment_type = 2 then 'LIFELINE'
+    else null end as enrollment_type, 
+case 
+    when a.etcgeneral = b.enrollment_number then 'match airt + cintex' 
+    when a.etcgeneral = c.enrollment_id then 'match newp' 
+    else 'not match' end as map_etc,
+case 
+    when d.phone_number_active is not null and e.mdn_active is null then 'phone active'
+    when d.phone_number_active is null and e.mdn_active is not null then 'phone active newphone' 
+    when d.phone_number_active is null and e.mdn_active is null and a.phonenumber is not null then 'phone in claim' 
+    else null end as map_phone_active
+FROM "prod_hth_claims_raw"."acp_claims_input_template_final" a
+left join "prod_hth_oss_etl"."stg_map_oss_enrollments" b on a.etcgeneral = b.enrollment_number
+left join "prod_hth_structured_oss"."oss_newp_enrollments" c on a.etcgeneral = c.enrollment_id
+left join prod_hth_analytics.dim_customer d on d.customer_id = b.enrollment_id
+left join "prod_hth_structured_oss"."oss_newp_customers" e on e.enrollment_id = c.id
+where year_month = '202307'
+),
+t1 as -- pwg usage
+(SELECT
+    cast(mdn as varchar) as mdn,
+    cast(sum(data) as decimal(38,10)) as volume_mb
+FROM "prod_cdrs_etl"."stg_pwg_usage_data_detail"
+where year_ = '2023' and month_ = '07'
+group by 1
+),
+t2 as -- att usage
+(SELECT
+    cast(mdn as varchar) as mdn,
+    cast(sum(case when record_type = 'Data' then total_volume_mb else 0 end) as decimal(38,10)) as volume_mb
+FROM "prod_cdrs_etl"."stg_eric_usage_summary"
+where year_ = '2023' and month_ = '07'
+group by 1
+), 
+t3 as
+(SELECT * FROM t1 union all SELECT * FROM t2),
+t4 as
+(SELECT
+    mdn,
+    sum(volume_mb) as data_mb_Jul
+FROM t3
+group by 1
+)
+SELECT
+    t0.*,
+    case when p.new_plan_code is not null then new_plan_code else plan_code end as plan_code,
+    t4.data_mb_Jul
+FROM t0 
+left join t4 on t0.phone_number_active = t4.mdn
+left join "prod_hth_structured_oss"."oss_airt_plans" p on t0.plan_id = p.id
+limit 10
+
+/*
+SELECT 
+    -- case when reasoncode like '%U%' then 'non usage' else 'usage' end as claim_status,
+    -- case when data_mb_Jul = 0 then 'non use data' else 'use data' end as use_data_status,
+    plan_code,
+    count(subscriberid) as sl
+FROM t5
+-- where data_mb_Jul = 0 
+group by 1
+*/
