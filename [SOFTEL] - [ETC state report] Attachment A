@@ -1,0 +1,153 @@
+with pwg_snapshot AS
+(SELECT distinct
+    'PWG' as carrier,
+    created_date AS date,
+    plan AS plan_price,
+    telephone_number as mdn
+FROM
+(SELECT
+      created_date,
+      pw.activation_date,
+      pw.line_status,
+      pw.debit_plan,
+      telephone_number,
+      b.plan,
+      year_,
+      month_,
+      day_,
+      IF(DATE(pw.activation_date) >= created_date,'ACTIVE',pw.line_status) AS account_status
+    FROM "prod_cdrs_etl"."stg_pwg_snapshot" AS pw
+    LEFT JOIN static.pwg_usage_plan_mapping AS b
+      ON pw.debit_plan = b.debit_plan
+    WHERE
+        line_status != 'DEACTIVATED'
+        AND month_ = '07'
+        AND year_ = '2023'
+  ) AS tmp
+WHERE
+    DATE(tmp.activation_date) < DATE_ADD('day', 1, tmp.created_date)
+    AND tmp.account_status IN ('ACTIVE', 'RESTRICTED')
+),
+att_snapshot AS
+(SELECT DISTINCT
+  'ATT' AS carrier,
+  DATE(CONCAT_WS('-', year_, month_, day_)) AS date,
+  plan_price,
+  mdn
+FROM "prod_cdrs_etl"."stg_eric_status_snapshots" AS a
+INNER JOIN "static"."att_usage_plan_mapping" AS b ON a.service_class = b.service_class
+WHERE
+    year_ = '2023' and month_ = '07'
+    and status IN ('A', 'U')
+),
+mdn_snapshot AS
+(SELECT * FROM pwg_snapshot union all SELECT * FROM att_snapshot),
+
+subs AS
+(SELECT
+    b.customer_id,
+    b.phone_number_active,
+    b.etc_branch_code,
+    b.state,
+    b.enrollment_type_name,
+    rank() over (partition by b.phone_number_active order by b.created_at desc) as rank_id
+FROM "prod_hth_analytics"."dim_customer" b
+),
+t1 as
+(SELECT
+    a.*,
+    b.customer_id,
+    b.etc_branch_code,
+    b.enrollment_type_name,
+    rank() over (partition by a.mdn order by date desc) as last_mdn
+FROM mdn_snapshot a
+LEFT JOIN subs b on a.mdn = b.phone_number_active
+WHERE rank_id =1 and b.etc_branch_code = 'AIRT' and b.enrollment_type_name in ('COMBO', 'LIFELINE') and b.state = 'OH'
+),
+t2 AS 
+(SELECT DISTINCT
+    enrollment_type_name,
+    carrier,
+    plan_price,
+    mdn,
+    customer_id
+FROM t1
+WHERE 
+(t1.mdn not in ('9853420526', '4058399835','6616557782', '6616660935') and t1.last_mdn = 1)
+or 
+(t1.mdn in ('9853420526', '4058399835','6616557782', '6616660935') and t1.carrier = 'ATT')
+),
+-- 4 mdn vẫn còn active đến ngày cuối cùng ở cả 2 plan: 9853420526, 4058399835,6616557782, 6616660935
+
+usage_att AS
+(SELECT 
+    cast(mdn as varchar) as mdn,
+    cast(sum(case when effective_date >= date('2023-07-01') and effective_date <= date('2023-07-15') then voice_mo else 0 end) as decimal(38,10)) + 
+    cast(sum(case when effective_date >= date('2023-07-01') and effective_date <= date('2023-07-15') then voice_mt else 0 end) as decimal(38,10)) as voice_half_mins,
+    cast(sum(voice_mo) as decimal(38,10)) + cast(sum(voice_mt) as decimal(38,10)) as voice_mins
+FROM "prod_cdrs_etl"."stg_att_usage_data_detail"
+WHERE year_ = '2023' and month_ = '07'
+group by 1
+),
+usage_pwg AS
+(SELECT 
+    cast(mdn as varchar) as mdn,
+    cast(sum(case when effective_date >= date('2023-07-01') and effective_date <= date('2023-07-15') then voice_mo else 0 end) as decimal(38,10)) + 
+    cast(sum(case when effective_date >= date('2023-07-01') and effective_date <= date('2023-07-15') then voice_mt else 0 end) as decimal(38,10)) as voice_half_mins,
+    cast(sum(voice_mo) as decimal(38,10)) + cast(sum(voice_mt) as decimal(38,10)) as voice_mins
+FROM "prod_cdrs_etl"."stg_pwg_usage_data_detail"
+WHERE year_ = '2023' and month_ = '07'
+group by 1
+),
+usage_union as
+(SELECT * FROM usage_att union all SELECT * FROM usage_pwg),
+usage as
+(SELECT mdn, sum(voice_half_mins) as voice_half_mins, sum(voice_mins) as voice_mins FROM usage_union group by 1),
+t3 as
+(SELECT
+    t2.*,
+    round(u.voice_half_mins,2) as voice_half_mins,
+    round(u.voice_mins,2) as voice_mins,
+    case 
+        when carrier = 'ATT' and voice_half_mins >500 then 'over cap half month'
+        when carrier = 'ATT' and voice_mins >500 then 'over cap total month'
+    else 'no cap' end as cap_status
+FROM t2
+LEFT JOIN usage u on u.mdn = t2.mdn
+),
+
+topup as
+(SELECT 
+a.customer_id,
+sum(e.voice) as voice_topup
+FROM "prod_hth_analytics"."fact_order" a 
+left join prod_hth_analytics.dim_order_type b  on b.order_type_id = a.order_type_id
+left join prod_hth_analytics.dim_order_status c on c.order_status_id = a.order_status_id
+left join prod_hth_analytics.fact_order_line d on d.order_id = a.order_id 
+left join prod_hth_structured_oss.oss_airt_plans e on substr(d.product_id,7,2) = cast(e.id as varchar)
+where c.name in ('CAPTURES', 'COMPLETED', 'INVOICE') 
+and b.name = 'TOP_UP'
+and d.product_name is not null
+and year(a.created_order_date) = 2023 and  month(a.created_order_date) = 7
+and e.is_topup = 1
+group by 1
+),
+t4 as
+(SELECT
+    t3.*,
+    case when voice_topup >0 then voice_topup else null end as voice_topup
+FROM t3 
+left join topup t on t3.customer_id = t.customer_id
+)
+SELECT
+enrollment_type_name as plan_name,
+count(mdn) as subs,
+count(case when cap_status = 'over cap total month' then mdn else null end) as sub_depleted_month,
+count(case when cap_status = 'over cap half month' then mdn else null end) as sub_depleted_half_month,
+count(case when cap_status = 'no cap' then mdn else null end) as sub_no_cap,
+round(avg(voice_topup),0) as avg_add_topup
+FROM t4
+group by 1
+
+
+
