@@ -415,7 +415,11 @@ case
     when d.phone_number_active is null and a.phonenumber = '' and d.phone_number_1 is not null then 'phone_number_1'
 else null end as mdn_final_status,
 cast (substring(d.plan_id,7,2) as int) as plan_id,
-d.etc_branch_code,
+case
+    when a.spin = '143037108' then 'AIRT'
+    when a.spin = '143035526' then 'CINT'
+    when a.spin = '143035842' then 'NEWP'
+else null end as etc_branch_code,
 case 
     when d.lifeline_status in (3,4) then 'active lifeline'
     when d.lifeline_status not in (3,4) and  d.lifeline_disconnected_date >= date('2023-07-01') then 'active lifeline'
@@ -424,21 +428,33 @@ else 'no lifeline' end as lifeline_status,
 d.lifeline_disconnected_date,
 case when d.lifeline_disconnected_date >= date('2023-07-01') then 'active acp Jul' else null end as lifeline_connect_status,
 case when d.upgraded_plan in (34, 35, 36, 37) then 1 else 0 end as is_copay,
-case when d.carrier_code = '01' then 'PWG' when d.carrier_code = '02' then 'ATT' else null end as carrier_enrollment,
-case when p.new_plan_code is not null and d.etc_branch_code = 'AIRT' then 'AV13' else 'other' end as plan_code
+case when d.carrier_code = '01' then 'PWG' when d.carrier_code = '02' then 'ATT' else null end as carrier_enrollment
+-- case when p.new_plan_code is not null and d.etc_branch_code = 'AIRT' then 'AV13' else 'other' end as plan_code
 FROM "prod_hth_claims_raw"."acp_claims_input_template_final" a
 left join prod_hth_analytics.dim_customer d on a.etcgeneral = d.enrollment_id
-left join prod_hth_structured_oss.oss_airt_plans p on p.id = cast (substring(d.plan_id,7,2) as int)
+-- left join prod_hth_structured_oss.oss_airt_plans p on p.id = cast (substring(d.plan_id,7,2) as int)
 where year_month = '202307'
 ),
+cl1 as 
+(SELECT subscriberid, etcgeneral FROM "prod_hth_claims_etl"."lifeline_ca_claims_input_template_final" where year_month = '202307'),
+cl2 as 
+(SELECT subscriberid, etcgeneral FROM "prod_hth_claims_etl"."lifeline_nlad_claims_input_template_final" where year_month = '202307'),
+cl3 as
+(SELECT * FROM cl1 union all SELECT * FROM cl2),
 t0 as 
 (SELECT
-enroll.*,
+en.*,
 case 
     when newp_enrollment = 'newp combo' then 'COMBO'
     when newp_enrollment = 'other' and lifeline_status = 'active lifeline' then 'COMBO'
+else 'ACP' end as enrollment_type_name_1,
+cl3.subscriberid as lifeline_subscriberid,
+case 
+    when newp_enrollment = 'newp combo' then 'COMBO'
+    when newp_enrollment = 'other' and cl3.subscriberid is not null then 'COMBO'
 else 'ACP' end as enrollment_type_name
-FROM enroll  
+FROM enroll en
+LEFT JOIN cl3 on en.enrollment_id = cl3.etcgeneral
 ),
 pwg_snapshot AS
 (SELECT distinct
@@ -640,7 +656,9 @@ enrollment_type_name,
 etc_branch_code,
 is_copay,
 carrier_enrollment,
-plan_code
+newp_enrollment,
+enrollment_type_name_1,
+lifeline_subscriberid
 FROM p
 ),
 
@@ -679,59 +697,51 @@ u5 as
 (SELECT
     y.*,
     case
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515LI0O1Y2C6T7Z7F1'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515PI7W2E0B3Z7T2M2'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515ZE3S8J0N8E3V5V6'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515JO0Z2B5F6N5R2T3'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515LI0O1Y2C6T7Z7F1'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515PI7W2E0B3Z7T2M2'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515ZE3S8J0N8E3V5V6'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515JO0Z2B5F6N5R2T3'
     
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515TY1R8F4K0Q4D0J6'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515KT3M9C7T9A0U2L6'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515KS7K8C8X9H0C1Y8'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515PG6R1F9V8C8P9Y4'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515TY1R8F4K0Q4D0J6'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515KT3M9C7T9A0U2L6'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515KS7K8C8X9H0C1Y8'
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515PG6R1F9V8C8P9Y4'
         
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524FI7X8X5G9U0F2K7'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524WY7Q6B5O8F8G5P1'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524KS0K3R0F0X6X5Z6'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524LP5R0J1Z2Z0N6H8'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524FI7X8X5G9U0F2K7'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524WY7Q6B5O8F8G5P1'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524KS0K3R0F0X6X5Z6'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524LP5R0J1Z2Z0N6H8'
     
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524QP4V1V0R7G2E0Y0'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524PO8C2U1D0Y8P1N7'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524CL8N4H1K0V3K6G0'
-        when plan_code = 'other' AND carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524BX8H3K3U9O1N2B5'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524QP4V1V0R7G2E0Y0'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524PO8C2U1D0Y8P1N7'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524CL8N4H1K0V3K6G0'
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524BX8H3K3U9O1N2B5'
         ----------
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515DR6P5E6V7R1K8P9'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515GR1N2O2F3I2R4E3'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515GI5I9W2V4K0C1M2'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515GY6H0Q0A0V4T0W8'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515DR6P5E6V7R1K8P9'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515GR1N2O2F3I2R4E3'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515GI5I9W2V4K0C1M2'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515GY6H0Q0A0V4T0W8'
     
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515GT6T4A1W1L9O1Y0'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515ZU2B1T1X6N9B6D1'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515OW1C3O3V3T9W6N2'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515PF7T8Q0R2X9X8M8'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515GT6T4A1W1L9O1Y0'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515ZU2B1T1X6N9B6D1'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515OW1C3O3V3T9W6N2'
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515PF7T8Q0R2X9X8M8'
         
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524CX8C0S4E2J1E7J6'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524CK9R5Q2N5K1X2H5'
-        when plan_code = 'other' AND plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524LE3R2O7Y2O7G1X1'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524RW6A1J5W9I7Y9Z4'
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524CX8C0S4E2J1E7J6'
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524CK9R5Q2N5K1X2H5'
+        when   carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524LE3R2O7Y2O7G1X1'
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524RW6A1J5W9I7Y9Z4'
     
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524DE3M3T6O9W9D3M0'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524MU4B5G9J9N4S9N4'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524KZ9D1V6A4Z8A8I5'
-        when plan_code = 'other' AND carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524AJ4X6V5N5D5Z0E4'
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0020964524DE3M3T6O9W9D3M0'
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0020964524MU4B5G9J9N4S9N4'
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 'M0020964524KZ9D1V6A4Z8A8I5'
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 'M0020964524AJ4X6V5N5D5Z0E4'
         ----------
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0021322953DI8P4H9B4I2L4D2'
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0021322953YQ2B2B4B2C5I5V4'
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 'M0021322953DJ1Z2X1O7B7F3R9'
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'M0021322953BJ8A9B3C3H5T6M8'
-        -----------
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'M0019466515JT9K2O0Q4H6V7B3'
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 'M0019466515GS3R2R0F9L3M5Z3'
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 'M0019466515CZ8I9P9M2A4G4S5'
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 'M0019466515YV4J2V3Q1I9J9S7'
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then'M0019466515JW2B7S4M5Z1L8L1'
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then'M0019466515EM3J0N9X0T6G6U5'
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then'M0019466515BQ8U0E7Z8J9D1O9'
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then'M0019466515SM0D6G3Q7D1C6B5'
+        
     else null end as unique_plan_identifier,
     case
         when etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 'Affordable Connectivity Program (ACP) Plan'
@@ -760,114 +770,98 @@ u5 as
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 'Lifeline & ACP Combo Plan [Tribal]'
     else null end as plan_name,
     case
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 3
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 3
     
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 3
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 3
         
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 3
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 3
     
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 3
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 3
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 3
         ----------
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 2
     
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 5
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 5
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 5
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 5
         
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 2
     
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 5
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 5
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 5
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 2
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 5
         ----------
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 2
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 2
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 2
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 5
-        ----------
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 19.5
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 8
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 19.5
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 22
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 15
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 22
+    
     else null end as first_soft_cap_gb,
     case
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 18
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 28
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 18
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 28
     
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 27
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 37
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 27
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
+        when  carrier = 'ATT' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 37
         
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 18
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 28
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 18
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 28
     
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 27
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
-        when plan_code = 'other' and carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 37
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 27
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
+        when  carrier = 'ATT' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 37
         ----------
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 25
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 35
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 25
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 35
     
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 35
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 45
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 35
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
+        when  carrier = 'PWG' and etc_branch_code = 'AIRT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 45
         
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 25
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 35
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 25
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 35
     
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 35
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
-        when plan_code = 'other' and carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 45
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 35
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
+        when  carrier = 'PWG' and etc_branch_code = 'CINT' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 45
         ----------
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 25
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
         when etc_branch_code = 'NEWP' and  enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 35
-        ----------
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 0 then 8
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 0 then 19.5
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 0 and is_copay = 1 then 18
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'ACP' and tribalbenefitflag = 1 and is_copay = 1 then 29.5
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 0 then 15
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 0 then 27
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 0 and is_copay = 1 then 25
-        when plan_code = 'AV13' AND etc_branch_code = 'AIRT' and enrollment_type_name = 'COMBO' and tribalbenefitflag = 1 and is_copay = 1 then 37
+    
     else null end as hard_cap_gb,
     case when y.mdn_map_snapshot = u4.mdn then 'map mdn usage' else 'not map mdn usage' end as mdn_usage_status,
     case when u4.data_gb_Jul is not null then u4.data_gb_Jul else 0 end as data_gb_Jul
@@ -883,7 +877,7 @@ FROM "prod_hth_analytics"."fact_order" a
 left join prod_hth_analytics.dim_order_type b  on b.order_type_id = a.order_type_id
 left join prod_hth_analytics.dim_order_status c on c.order_status_id = a.order_status_id
 where c.name in ('CAPTURES', 'COMPLETED', 'INVOICE') 
-and b.name in ('TOP_UP', 'UP_GRADE', 'RMA_STANDARD_REPLACEMENT', 'REPLACEMENT_SIM', 'UPGRADE_SIM')
+and b.name in ('UP_GRADE', 'RMA_STANDARD_REPLACEMENT', 'REPLACEMENT_SIM', 'UPGRADE_SIM')
 and month(a.created_order_date) = 7
 group by 1 
 ),
@@ -893,9 +887,9 @@ o7 as
     case when o6.gross_amount_jul is null then 0 else o6.gross_amount_jul end as gross_amount_jul
 FROM u5 
 left join o6 on u5.customer_id = o6.customer_id
-),
-o AS 
-(SELECT
+)
+ 
+SELECT
     o7.*,
     case when data_gb_Jul >= hard_cap_gb and hard_cap_gb > first_soft_cap_gb then 'hit hard cap' else 'others' end as his_hard_cap_status,
     case when data_gb_Jul > hard_cap_gb and hard_cap_gb > first_soft_cap_gb then data_gb_Jul - hard_cap_gb else null end as volume_gb_overage_hard_cap,
@@ -905,7 +899,12 @@ o AS
         when is_copay = 0 and gross_amount_jul <= 0 then 'paying 0$'
         else 'others' end as paying_status
 FROM o7
-)
+
+
+-- SELECT subscriberid, count(subscriberid) FROM o group by 1 having count(subscriberid) >1
+
+
+
 
 /*
 SELECT count(subscriberid) FROM o WHERE unique_plan_identifier in ('M0019466515JT9K2O0Q4H6V7B3',
@@ -923,7 +922,10 @@ SELECT count(subscriberid) FROM o WHERE unique_plan_identifier in ('M0019466515J
 -- SELECT enrollment_type_name, count(distinct subscriberid) FROM o group by 1
 
 -- SELECT etc_branch_code, count(distinct subscriberid) FROM o group by 1
+
 -- SELECT * FROM o where volume_gb_overage_hard_cap > 45
+-- SELECT newp_enrollment, count(subscriberid) FROM o where unique_plan_identifier = 'M0021322953DJ1Z2X1O7B7F3R9' group by 1
+-- SELECT enrollment_type_name, count(subscriberid) FROM o where unique_plan_identifier = 'M0021322953DJ1Z2X1O7B7F3R9' group by 1
 
 -- SELECT unique_plan_identifier, count(distinct subscriberid) FROM o group by 1 
 
