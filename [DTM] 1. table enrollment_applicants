@@ -1,0 +1,105 @@
+-- select * from "prod_hth_structured_oss"."oss_airt_incomplete_enrollments" limit 10; 
+-- 1. enrollment - first step (1-12)
+select 
+    id as traffic_id,
+    concat(first_name,last_name, cast(dob as varchar)) as visitor_id,
+    null as enrollment_id,
+    null as enrollment_code,
+    etc_branch_code,
+    status as enrollment_status_id,
+    step as enrollment_latest_step_name
+from "prod_hth_structured_oss"."oss_airt_incomplete_enrollments" a
+where a.enrollment_id is null
+limit 10;
+
+-- 2. enrollment - first step - new version (1-11)
+select 
+    id as traffic_id,
+    concat(first_name,last_name, cast(dob as varchar)) as visitor_id,
+    null as enrollment_id,
+    null as enrollment_code,
+    etc_branch_code,
+    status as enrollment_status_id,
+    current_step as enrollment_latest_step_number
+from "prod_hth_structured_oss"."oss_airt_v2_incomplete_enrollments" a
+where a.enrollment_id is null
+limit 10;
+
+-- 3. customer (13-17)
+    select
+    id as customer_id,
+    status,
+    case when cast(is_fulfilled as varchar) = '2' then 1 else 0 end as is_fulfilled
+from "prod_hth_structured_oss"."oss_airt_customers" 
+limit 10;
+
+-- 4. enrollment (21-28)
+select
+    created_at,
+    updated_at,
+    same_beneficiary as is_same_beneficiary,
+    b_first_name as beneficiary_first_name,
+    b_last_name as beneficiary_last_name,
+    b_middle_name as beneficiary_middle_name,
+    b_dob as beneficiary_dob,
+    b_ssn_4 as beneficiary_ssn
+from "prod_hth_structured_oss"."oss_airt_enrollments"
+limit 10;
+
+-- 4. store (33-35)
+select
+    source as enrollment_source,
+    dealer_store_id,
+    b.name as dealer_store_name
+from "prod_hth_structured_oss"."oss_airt_enrollments" a 
+left join "prod_hth_wh_raw"."pos_stores" b on a.dealer_store_id = b.id
+where source = 'StoreDealerPOS'
+limit 10;
+
+-- 5. demographic (36-51)
+select
+    first_name,
+    last_name,
+    middle_name,
+    dob,
+    ssn_4 as ssn,
+    phone_number as enrollment_phone_number,
+    email,
+    zip_code,
+    state,
+    city,
+    address_1 as address,
+    m_zip_code as mailing_zip_code,
+    m_state as mailing_state,
+    m_city as mailing_city,
+    m_address_1 as mailing_address,
+    is_tribal
+from "prod_hth_structured_oss"."oss_airt_v2_incomplete_enrollments"
+limit 10;
+
+-- 6. program (52-53)
+/* 
+SELECT 
+	e.certification_id,
+	c.name AS certification_desc
+FROM oss_enrollments e
+LEFT JOIN oss_certifications c on e.certification_id = c.id 
+WHERE e.certification_id is NOT NULL
+LIMIT 10
+*/
+
+-- 7. rejection (8-10)
+/*
+SELECT
+	e.id,
+	r.rejection_reason_id,
+	d.`name` AS rejected_reason_desc,
+	c.`name` AS rejected_reason_category
+FROM oss_enrollments e 
+LEFT JOIN oss_enrollment_rejection_reason r on e.id = r.enrollment_id
+LEFT JOIN oss_rejection_reasons d on d.id = r.rejection_reason_id
+LEFT JOIN oss_rejection_reason_categories c on c.id = d.category_id
+WHERE r.rejection_reason_id is not null 
+LIMIT 10
+*/
+
